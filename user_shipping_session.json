@@ -1,0 +1,11 @@
+{
+  "name": "John Doe",
+  "mobile": "9876543210",
+  "pincode": "110001",
+  "address": "123 Main Street, Connaught Place",
+  "locality": "Connaught Place",
+  "city": "New Delhi",
+  "state": "Delhi",
+  "landmark": "Near Metro Station",
+  "address_type": "Home"
+}
