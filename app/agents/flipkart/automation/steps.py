@@ -95,13 +95,13 @@ class FlipkartSteps:
             self.logger.warning(f"Could not save session: {str(e)}")
 
     async def _login_with_phone(self):
-        """Login using phone number (robust selectors with click before fill)"""
-        import os, json, time
+        """Login using phone number and OTP (Flipkart-style new HTML version)."""
+        import os, json, time, asyncio
 
         shipping_session_file = "user_shipping_session.json"
         phone = None
 
-        # Load phone from session if available
+        # Load saved phone number
         if os.path.exists(shipping_session_file):
             try:
                 with open(shipping_session_file, "r") as f:
@@ -111,111 +111,133 @@ class FlipkartSteps:
                 self.logger.warning(f"Could not read {shipping_session_file}: {str(e)}")
                 phone = None
 
-        # Ask user if they want to use saved phone
+        # Ask user for phone number
         if phone:
             print(f"📱 Found phone number in session: {phone}")
-            use_existing = input(f"Use this phone number? [Y/n]: ").strip().lower()
+            use_existing = input("Use this phone number? [Y/n]: ").strip().lower()
             if use_existing not in ("y", "yes", ""):
                 phone = input("Enter your phone number: ").strip()
         else:
             phone = input("Enter your phone number: ").strip()
 
-        self.logger.info("🔐 Starting phone login...")
+        self.logger.info("🔐 Starting Flipkart phone login...")
 
-        # Click login button if present
-        login_button_selectors = [
-            "button:has-text('Login')",
-            "text=Login",
-            "a[href*='login']"
-        ]
-        for selector in login_button_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.click(selector)
-                    await asyncio.sleep(1)
-                    break
-            except:
-                continue
-
-        # Fill phone number
+        # --- Step 1: Fill Phone Number ---
         phone_input_selectors = [
-            "input._2IX_2-", 
-            "input[type='tel']", 
-            "input[placeholder*='Phone']"
-        ]
+                "input[autocomplete='off']",              # fallback for general text field
+                "input.r4vIwl.Jr-g+f",                   # new Flipkart-style field
+                "input._2IX_2-",                         # older Flipkart selector
+                "input[type='tel']",
+                "input[placeholder*='Phone']",
+                "input[placeholder*='Mobile']",
+                "input[label*='Email/Mobile']"         # fallback for label-based hint
+            ]
+
         for selector in phone_input_selectors:
             try:
                 if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.click(selector)  # <-- click first to focus
+                    await self.page.click(selector)
                     await asyncio.sleep(0.5)
                     await self.page.fill(selector, phone)
-                    self.logger.info("✅ Phone number entered")
+                    self.logger.info(f"✅ Entered phone number using: {selector}")
                     break
-            except:
+            except Exception as e:
+                self.logger.debug(f"Skipping {selector}: {e}")
                 continue
+        else:
+            self.logger.error("❌ Could not find phone number input field.")
+            return
 
-        # Click Continue
+        # --- Step 2: Click Continue / Request OTP ---
         continue_selectors = [
-            "button._2KpZ6l._2HKlqd", 
-            "button[type='submit']", 
-            "button:has-text('Continue')"
+            "button._2KpZ6l._2HKlqd",
+            "button[type='submit']",
+            "button:has-text('Request OTP')",
+            "button:has-text('Continue')",
+            "button:has-text('Next')"
         ]
         for selector in continue_selectors:
             try:
                 if await self.page.is_visible(selector, timeout=5000):
                     await self.page.click(selector)
-                    self.logger.info("✅ Continue clicked")
+                    self.logger.info(f"✅ Clicked Continue button: {selector}")
                     break
-            except:
+            except Exception as e:
+                self.logger.debug(f"Skipping continue selector {selector}: {str(e)}")
                 continue
 
-        await asyncio.sleep(2)  # wait for OTP input to appear
+        # Wait for OTP field to appear
+        await asyncio.sleep(3)
 
-        # Fill OTP
-        otp = input("Enter OTP received on your phone: ").strip()
+        # --- Step 3: Fill OTP ---
         otp_input_selectors = [
-            "input[type='text']", 
-            "input[placeholder*='OTP']", 
+            "input.r4vIwl.zgwPDa.Jr-g+f",           # new OTP field
+            "input[type='text'][maxlength='6']",
+            "input[placeholder*='OTP']",
             "input[name*='otp']"
         ]
+
+        otp_entered = False
         for selector in otp_input_selectors:
             try:
                 if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.click(selector)  # <-- click before filling OTP
-                    await asyncio.sleep(0.5)
-                    await self.page.fill(selector, otp)
-                    self.logger.info("✅ OTP entered")
-                    break
-            except:
-                continue
-
-        # Click Login / Verify
-        login_verify_selectors = [
-            "button._2KpZ6l._2HKlqd", 
-            "button[type='submit']", 
-            "button:has-text('Login')", 
-            "button:has-text('Verify')"
-        ]
-        for selector in login_verify_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
                     await self.page.click(selector)
-                    self.logger.info("✅ Login/Verify clicked")
+                    await asyncio.sleep(0.5)
+                    otp = input("Enter OTP received on your phone: ").strip()
+                    await self.page.fill(selector, otp)
+                    self.logger.info(f"✅ OTP entered using: {selector}")
+                    otp_entered = True
                     break
-            except:
+            except Exception as e:
+                self.logger.debug(f"Skipping OTP selector {selector}: {str(e)}")
                 continue
 
-        # Wait for login to complete
+        if not otp_entered:
+            self.logger.error("❌ Could not find OTP input field.")
+            return
+
+        # --- Step 4: Handle Resend OTP (optional) ---
+        resend_selector_js = (
+            "#container > div > div.lloqNF > div > div.zuxjMQ > div:nth-child(1) > "
+            "div > div > div > div > div.col.col-5-12 > div > form > div:nth-child(2) > a"
+        )
+
+        resend_option = input("Need to resend OTP? [y/N]: ").strip().lower()
+        if resend_option in ("y", "yes"):
+            try:
+                if await self.page.is_visible(resend_selector_js, timeout=5000):
+                    await self.page.click(resend_selector_js)
+                    self.logger.info("🔄 OTP resend clicked.")
+                    await asyncio.sleep(2)
+            except Exception as e:
+                self.logger.warning(f"⚠️ Could not click Resend OTP: {e}")
+
+        # --- Step 5: Click Signup/Login Button ---
+        signup_button_selector = (
+            "#container > div > div.lloqNF > div > div.zuxjMQ > div:nth-child(1) > "
+            "div > div > div > div > div.col.col-5-12 > div > form > div.aPGMpN > button"
+        )
+
+        try:
+            if await self.page.is_visible(signup_button_selector, timeout=5000):
+                await self.page.click(signup_button_selector)
+                self.logger.info("✅ Clicked Signup/Login button")
+            else:
+                self.logger.warning("⚠️ Signup/Login button not visible.")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Could not click Signup/Login button: {e}")
+
+        # --- Step 6: Wait for login to finish and save session ---
         await self.page.wait_for_load_state('networkidle')
         await asyncio.sleep(2)
 
-        # Save session info
         self.user_data['logged_in'] = True
         self.user_data['login_method'] = 'phone'
         self.user_data['login_timestamp'] = time.time()
         self._save_user_session()
 
-        self.logger.info("✅ Login successful, session saved")
+        self.logger.info("✅ Login successful, session saved.")
+
 
     async def _login_with_email(self):
         """Login using email"""
@@ -647,7 +669,7 @@ class FlipkartSteps:
 
     async def _check_delivery_availability(self) -> bool:
         """Check if product is available for delivery using pincode from session.json"""
-        import os, json
+        import os, json, asyncio
 
         self.logger.info("📦 Checking delivery availability...")
 
@@ -681,7 +703,7 @@ class FlipkartSteps:
         self.logger.info(f"📍 Using pincode: {pincode}")
 
         try:
-            # Possible selectors for pincode input
+            # --- Enter Pincode ---
             delivery_input_selectors = [
                 "#pincodeInputId",
                 "input[placeholder*='Pincode']",
@@ -691,13 +713,6 @@ class FlipkartSteps:
                 ".delivery-info input"
             ]
 
-            check_button_selectors = [
-                "button._2KpZ6l",  # Generic "Check" button
-                "button:has-text('Check')",
-                "button:has-text('Check Delivery')"
-            ]
-
-            # Enter pincode
             input_filled = False
             for selector in delivery_input_selectors:
                 try:
@@ -714,16 +729,23 @@ class FlipkartSteps:
                 self.logger.warning("⚠️ Pincode input not found, skipping delivery check")
                 return True  # Assume available
 
-            # Click check button
+            # --- Click Check Delivery Button ---
+            # Use robust locator: button or span inside button
+            check_button_selectors = [
+                "button:has-text('Check')",
+                "button:has-text('Check Delivery')",
+                "span:has-text('Check')",
+                "#container > div > div._39kFie.N3De93.JxFEK3._48O0EI > div.DOjaWF.YJG4Cf > div.DOjaWF.gdgoEp.col-8-12 > div:nth-child(7) > div > div > div._98QWWQ > div.BvstzA > div > div.guihks.undefined > div.Ir\\+XS5._5Owjac.H1broz > span"
+            ]
+
             button_clicked = False
             for selector in check_button_selectors:
                 try:
-                    if await self.page.is_visible(selector, timeout=3000):
+                    if await self.page.is_visible(selector, timeout=5000):
                         await self.page.click(selector)
                         button_clicked = True
                         self.logger.info(f"✅ Clicked Check Delivery button: {selector}")
-                        # Wait for page/network to finish
-                        await self.page.wait_for_load_state('networkidle')
+                        await asyncio.sleep(3)  # wait for page to update after click
                         break
                 except:
                     continue
@@ -732,22 +754,14 @@ class FlipkartSteps:
                 self.logger.warning("⚠️ Check Delivery button not found, skipping check")
                 return True
 
-            # Check for delivery availability
+            # --- Check for delivery availability ---
+            # Retry a couple of times with small delays
             available_selectors = [
                 "text=Delivery available",
                 "text=Delivery in",
                 "text=Free Delivery",
                 "text=Ships to your location"
             ]
-            for sel in available_selectors:
-                try:
-                    if await self.page.is_visible(sel, timeout=3000):
-                        self.logger.info("✅ Delivery available for this pincode")
-                        return True
-                except:
-                    continue
-
-            # Check for unavailable indicators
             unavailable_selectors = [
                 "text=Currently Unavailable",
                 "text=Out of Stock",
@@ -755,15 +769,25 @@ class FlipkartSteps:
                 ".out-of-stock",
                 ".unavailable"
             ]
-            for sel in unavailable_selectors:
-                try:
-                    if await self.page.is_visible(sel, timeout=3000):
-                        self.logger.error("❌ Product not available for delivery")
-                        return False
-                except:
-                    continue
 
-            self.logger.info("ℹ️ Delivery status unclear, assuming available")
+            for attempt in range(3):  # retry 3 times
+                for sel in available_selectors:
+                    try:
+                        if await self.page.is_visible(sel, timeout=2000):
+                            self.logger.info("✅ Delivery available for this pincode")
+                            return True
+                    except:
+                        continue
+                for sel in unavailable_selectors:
+                    try:
+                        if await self.page.is_visible(sel, timeout=2000):
+                            self.logger.error("❌ Product not available for delivery")
+                            return False
+                    except:
+                        continue
+                await asyncio.sleep(2)  # wait a bit and retry
+
+            self.logger.info("ℹ️ Delivery status unclear after retries, assuming available")
             return True
 
         except Exception as e:
@@ -896,41 +920,93 @@ class FlipkartSteps:
             self.logger.info("✅ Already logged in or no login required")
 
     async def step_7_fill_shipping_info(self):
-        """Step 7: Fill shipping information"""
-        if not self.shipping_info:
-            raise Exception("No shipping information provided")
-            
+        """Step 7: Fill shipping information, choose from saved addresses or enter new"""
+        import asyncio
+
         self.logger.info("🏠 Filling shipping information...")
-        
-        # Field mapping
-        field_mappings = {
-            "name": ["name", "fullname", "customerName"],
-            "mobile": ["mobile", "phone", "contact"],
-            "pincode": ["pincode", "zipcode", "zip"],
-            "address": ["address", "street", "line1"],
-            "locality": ["locality", "area", "sublocality"],
-            "city": ["city", "town"],
-            "state": ["state", "region"],
-            "landmark": ["landmark", "near"]
-        }
-        
-        for field_name, field_value in self.shipping_info.items():
-            if not field_value:
+
+        # --- Step 1: Detect saved addresses ---
+        saved_address_selectors = [
+            "div._1ruvv2",  # Flipkart saved address card
+            "div._3Nyybr",  # alternative saved address card
+        ]
+
+        saved_addresses = []
+        for sel in saved_address_selectors:
+            try:
+                if await self.page.is_visible(sel, timeout=3000):
+                    elements = await self.page.query_selector_all(sel)
+                    for el in elements:
+                        text = (await el.inner_text()).strip()
+                        if text:
+                            saved_addresses.append(text)
+            except:
                 continue
-                
-            field_patterns = field_mappings.get(field_name.lower(), [field_name])
-            
-            for pattern in field_patterns:
+
+        # --- Step 2: Let user choose saved address or new ---
+        chosen_address = None
+        if saved_addresses:
+            self.logger.info("📋 Found saved addresses:")
+            for idx, addr in enumerate(saved_addresses, 1):
+                print(f"{idx}. {addr}")
+
+            choice = input(f"Select address [1-{len(saved_addresses)}] or enter N for new: ").strip()
+            if choice.lower() == 'n':
+                chosen_address = self.shipping_info  # enter new
+            elif choice.isdigit() and 1 <= int(choice) <= len(saved_addresses):
+                chosen_address = saved_addresses[int(choice) - 1]
+            else:
+                print("❌ Invalid choice, entering new address.")
+                chosen_address = self.shipping_info
+        else:
+            self.logger.info("ℹ️ No saved addresses found. Entering new address.")
+            chosen_address = self.shipping_info
+
+        # --- Step 3: If user chose new address, fill form ---
+        if isinstance(chosen_address, dict):
+            # Field mapping
+            field_mappings = {
+                "name": ["name", "fullname", "customerName"],
+                "mobile": ["mobile", "phone", "contact"],
+                "pincode": ["pincode", "zipcode", "zip"],
+                "address": ["address", "street", "line1"],
+                "locality": ["locality", "area", "sublocality"],
+                "city": ["city", "town"],
+                "state": ["state", "region"],
+                "landmark": ["landmark", "near"]
+            }
+
+            for field_name, field_value in chosen_address.items():
+                if not field_value:
+                    continue
+
+                field_patterns = field_mappings.get(field_name.lower(), [field_name])
+
+                for pattern in field_patterns:
+                    try:
+                        selector = f"input[name*='{pattern}'], textarea[name*='{pattern}'], input[placeholder*='{pattern}']"
+                        if await self.page.is_visible(selector, timeout=3000):
+                            await self.page.fill(selector, str(field_value))
+                            self.logger.info(f"✅ Filled {field_name}")
+                            break
+                    except:
+                        continue
+
+        elif isinstance(chosen_address, str):
+            # If user selected an existing address card, click it
+            for sel in saved_address_selectors:
                 try:
-                    selector = f"input[name*='{pattern}'], textarea[name*='{pattern}'], input[placeholder*='{pattern}']"
-                    if await self.page.is_visible(selector, timeout=3000):
-                        await self.page.fill(selector, str(field_value))
-                        self.logger.info(f"✅ Filled {field_name}")
-                        break
+                    elements = await self.page.query_selector_all(sel)
+                    for el in elements:
+                        text = (await el.inner_text()).strip()
+                        if text == chosen_address:
+                            await el.click()
+                            self.logger.info("✅ Selected existing saved address")
+                            break
                 except:
                     continue
-        
-        # Click continue/save
+
+        # --- Step 4: Click continue/save ---
         await asyncio.sleep(2)
         continue_selectors = [
             "button:has-text('Continue')",
@@ -938,7 +1014,7 @@ class FlipkartSteps:
             "button:has-text('Next')",
             "._2KpZ6l._1seccl._3AWRsL"
         ]
-        
+
         for selector in continue_selectors:
             try:
                 if await self.page.is_visible(selector, timeout=5000):
@@ -947,7 +1023,7 @@ class FlipkartSteps:
                     break
             except:
                 continue
-        
+
         await self.page.wait_for_load_state('networkidle')
 
     async def step_8_proceed_to_payment(self):

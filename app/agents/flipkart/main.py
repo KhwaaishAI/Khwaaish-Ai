@@ -220,7 +220,7 @@ DEFAULT_SHIPPING_INFO = {
 
 def auto_select_product():
     """Select a product automatically"""
-    return PRODUCT_CONFIGS["atomic_habits"]
+    return PRODUCT_CONFIGS["hp_laserjet_pro"]
 
 import json
 
@@ -289,11 +289,51 @@ async def main():
 
         print("\n✅ AUTOMATION COMPLETED! Please complete payment manually.")
         print("⏳ Browser will remain open for manual completion (Ctrl+C to exit).")
-        try:
-            while True:
-                await asyncio.sleep(10)
-        except KeyboardInterrupt:
-            print("\n👋 Closing browser...")
+        import sys
+        import threading
+
+        # Helper to wait for user input with timeout
+        def get_input_timeout(prompt, timeout):
+            user_input = [None]
+            def timed_input():
+                user_input[0] = input(prompt)
+            thread = threading.Thread(target=timed_input)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout)
+            if thread.is_alive():
+                return None
+            return user_input[0]
+
+        # Ask user what to do based on inactivity
+        answer = get_input_timeout(
+            "\n⏳ Do you want to keep the browser open? [C]lose now / [K]eep open: ",
+            10
+        )
+        if answer is None:
+            print("\n⌛ No user interaction for 10 seconds. Closing browser...")
+        else:
+            answer = answer.strip().lower()
+            if answer and answer[0] == "k":
+                print("\n🔄 Keeping browser open. Press Ctrl+C or close browser window to exit...")
+                try:
+                    while True:
+                        # Check every second if the browser is closed externally, if possible
+                        if hasattr(automation, "browser") and automation.browser:
+                            try:
+                                # For playwright's browser, check if it is closed
+                                if automation.browser.is_closed():
+                                    print("\n👋 Browser closed by user. Exiting...")
+                                    break
+                            except Exception:
+                                # Fallback: exit if any error occurs (probably closed)
+                                break
+                        await asyncio.sleep(1)
+
+                except KeyboardInterrupt:
+                    print("\n👋 Closing browser...")
+            else:
+                print("\n👋 Closing browser...")
 
     except Exception as e:
         automation.logger.error(f"❌ Automation failed: {str(e)}")
