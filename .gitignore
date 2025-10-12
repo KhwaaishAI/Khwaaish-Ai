@@ -1,0 +1,74 @@
+# ============================
+# FASTAPI PROJECT .gitignore
+# ============================
+
+# Environment variables
+.env
+.env.*
+.env.bak/
+
+# Local data and cache directories
+pychance/
+debug_screenshots/
+
+# Sensitive or session JSON files
+user_shipping.json
+user_session.json
+
+# Logs
+flipkart_automation.log
+*.log
+
+# JSON data/config files
+*.json
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Build / distribution directories
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE / editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Coverage / test outputs
+.coverage
+htmlcov/
+pytest_cache/
+.tox/
+.mypy_cache/
+.pytest_cache/
+
+# Uvicorn and Gunicorn logs
+uvicorn.log
+gunicorn.log
+
+# Docker artifacts
+docker-compose.override.yml
+*.pid
+
+# Temporary or generated files
+tmp/
+logs/
+media/
+uploads/
+
+# Node (if you use React/Vue for frontend)
+node_modules/
