@@ -1,20 +1,17 @@
 import re
 import json
-from typing import Dict, Any, Optional
+from typing import Any, Optional, List
 from config import Config
 from llm.provider import LLMProviderManager
 
 class LLMAssistant:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, logger):
         self.config = config
-        self.logger = None
-        self.provider_manager = LLMProviderManager(self.config)
-
-    def set_logger(self, logger):
         self.logger = logger
+        self.provider_manager = LLMProviderManager(self.config)
         self.provider_manager.set_logger(logger)
 
-    async def analyze_dom_and_suggest_action(self, dom_snapshot: Dict, goal: str) -> Dict[str, Any]:
+    async def analyze_dom_and_suggest_action(self, dom_snapshot: dict, goal: str) -> dict[str, Any]:
         """
         Use LLM to analyze DOM and suggest next action (with fallback to rule-based).
         Updated as per new workflow: mainly used for fallback or fine-grained actions, as main steps are now generated in main.py and steps.py.
@@ -36,7 +33,7 @@ class LLMAssistant:
         return self._get_rule_based_action(goal)
 
 
-    async def analyze_failure(self, step_name: str, error: str, dom_snapshot: Dict) -> Dict[str, Any]:
+    async def analyze_failure(self, step_name: str, error: str, dom_snapshot: dict) -> dict[str, Any]:
         """
         Use LLM to analyze step failure and suggest a recovery plan (fallback if LLM fails).
         """
@@ -51,7 +48,7 @@ class LLMAssistant:
         # Fallback: very basic self-healing aligned to new workflow steps
         return self._get_fallback_recovery_plan()
 
-    def _build_action_prompt(self, dom_snapshot: Dict, goal: str) -> str:
+    def _build_action_prompt(self, dom_snapshot: dict, goal: str) -> str:
         # More focused prompt for updated workflow (works for both search and in-page actions)
         return f"""
 Analyze the following web page snapshot and suggest the most reliable CSS selector & action to accomplish the goal: "{goal}"
@@ -82,7 +79,7 @@ Selector preference order:
 Return nothing except the JSON.
 """
 
-    def _build_failure_prompt(self, step_name: str, error: str, dom_snapshot: Dict) -> str:
+    def _build_failure_prompt(self, step_name: str, error: str, dom_snapshot: dict) -> str:
         return f"""
 Web automation failed at step: {step_name}
 Error encountered: {error}
@@ -112,7 +109,7 @@ Suggest a concise fallback recovery plan in JSON as shown. If a simple reload or
         elements.extend(links[:10])
         return '\n'.join(elements)
 
-    def _parse_llm_response(self, response: str) -> Optional[Dict[str, Any]]:
+    def _parse_llm_response(self, response: str) -> Optional[dict[str, Any]]:
         # Extract any JSON in response, for robustness
         try:
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -122,72 +119,58 @@ Suggest a concise fallback recovery plan in JSON as shown. If a simple reload or
             pass
         return None
 
-    def _get_rule_based_action(self, goal: str) -> Dict[str, Any]:
+    def _get_rule_based_action(self, goal: str) -> dict[str, Any]:
         """
-        Rule-based fallback, adapted to the new workflow and steps.
+        Rule-based fallback for Uber automation steps.
         """
         goal_lower = goal.lower()
-        # Map new workflow phrases to selectors; you can tweak as workflow/steps evolve!
+        # Map Uber workflow phrases to selectors.
 
-        if "generate search url" in goal_lower or "search" in goal_lower:
+        if "Pickup location" in goal_lower:
             return {
                 "action": "type",
-                "selector": self.config.SELECTORS["search_input"][0],
-                "reason": "Fallback: search box detected",
-                "confidence": 0.7
-            }
-        elif "launch search url" in goal_lower:
-            return {
-                "action": "navigate",
-                "selector": None,
-                "reason": "Fallback: navigating to search URL",
+                "selector": self.config.SELECTORS["Pickup input"][0],
+                "reason": "Fallback: Pickup location",
                 "confidence": 0.8
             }
-        elif "select exact product" in goal_lower or "exact product" in goal_lower or "choose product" in goal_lower:
+        elif "enter destination" in goal_lower:
             return {
-                "action": "click",
-                "selector": self.config.SELECTORS["product_card"][0],
-                "reason": "Fallback: Select product card",
-                "confidence": 0.7
-            }
-        elif "add to cart" in goal_lower:
-            return {
-                "action": "click",
-                "selector": self.config.SELECTORS["add_to_cart"][0],
-                "reason": "Fallback: Add to cart button",
+                "action": "type",
+                "selector": self.config.SELECTORS["destination_location_input"][0],
+                "reason": "Fallback: enter destination location",
                 "confidence": 0.8
             }
-        elif "place order" in goal_lower:
+        elif "confirm locations" in goal_lower:
             return {
                 "action": "click",
-                "selector": self.config.SELECTORS.get("place_order", ["button:has-text('Place Order')"])[0],
-                "reason": "Fallback: Place order button",
+                "selector": self.config.SELECTORS.get("confirm_locations_button", ["button:has-text('Confirm Locations')"])[0],
+                "reason": "Fallback: confirm pickup and destination",
                 "confidence": 0.7
             }
-        elif "increase quantity" in goal_lower or "quantity" in goal_lower:
+        elif "select ride" in goal_lower or "choose ride" in goal_lower:
             return {
                 "action": "click",
-                "selector": self.config.SELECTORS.get("quantity_increase", ["button:has-text('+')"])[0],
-                "reason": "Fallback: Quantity increase button",
+                "selector": self.config.SELECTORS.get("ride_option", ["div[data-testid='ub-ride-option']"])[0],
+                "reason": "Fallback: select a ride option",
                 "confidence": 0.7
             }
-        elif "continue" in goal_lower:
+        elif "request ride" in goal_lower or "confirm ride" in goal_lower:
             return {
                 "action": "click",
-                "selector": self.config.SELECTORS.get("continue_button", ["button:has-text('Continue')"])[0],
-                "reason": "Fallback: Continue button",
-                "confidence": 0.65
+                "selector": self.config.SELECTORS.get("request_ride_button", ["button:has-text('Request')"])[0],
+                "reason": "Fallback: confirm and request the ride",
+                "confidence": 0.8
             }
         else:
             # Generic minimal fallback for unknown goals
             return {
                 "action": "wait",
                 "selector": "body",
-                "reason": "Fallback: Safe wait",
+                "reason": "Fallback: Unknown goal, performing a safe wait.",
                 "confidence": 0.5
             }
 
-    def _get_fallback_recovery_plan(self) -> Dict[str, Any]:
+    def _get_fallback_recovery_plan(self) -> dict[str, Any]:
         # Robust recovery plan, aligned with steps.py/common Flipkart modal annoyance
         return {
             "analysis": "LLM providers unavailable or failed. Using basic recovery plan.",
@@ -200,7 +183,41 @@ Suggest a concise fallback recovery plan in JSON as shown. If a simple reload or
             ]
         }
 
-    async def invoke(self, prompt: str, preferred_provider: Optional[str] = None) -> Dict[str, str]:
+    async def analyze_ride_options(self, ride_data: list[dict[str, Any]]) -> Optional[str]:
+        """
+        Uses an LLM to analyze a list of ride options and suggest the cheapest and fastest.
+        """
+        if not ride_data:
+            self.logger.warning("No ride data provided to analyze.")
+            return None
+
+        # Convert the ride data to a clean JSON string for the prompt
+        ride_data_json = json.dumps(ride_data, indent=2)
+
+        prompt = f"""
+Analyze the following list of Uber ride options provided in JSON format. Your task is to identify the cheapest and the fastest ride.
+
+Ride Data:
+```json
+{ride_data_json}
+```
+
+Based on the data, please provide a concise summary highlighting:
+1.  **The Cheapest Ride**: Mention its name and price.
+2.  **The Fastest Ride**: Mention its name and ETA.
+
+If a single ride is both the cheapest and fastest, state that clearly. Present the output in a clean, human-readable format.
+"""
+
+        self.logger.info("Asking LLM to analyze ride options for the cheapest and fastest...")
+        analysis = await self.provider_manager.get_completion(
+            prompt,
+            preferred_provider="g4f"  # Explicitly use g4f as requested
+        )
+
+        return analysis
+
+    async def invoke(self, prompt: str, preferred_provider: Optional[str] = None) -> dict[str, str]:
         """
         Directly invoke the LLM with a given prompt and always return a standardized query response.
         Returns:

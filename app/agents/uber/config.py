@@ -28,15 +28,7 @@ class Config:
     # Automation Settings
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
     RETRY_DELAY: int = int(os.getenv("RETRY_DELAY", "2"))
+
+    # Session Management
+    SESSIONS_DIR: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation", "sessions")
     
-    # Flipkart Selectors
-    SELECTORS = {
-        "search_input": ["[name='q']", "input[title*='search']", "._3704LK"],
-        "login_close": ["button._2KpZ6l._2doB4z", "[data-testid='close-modal']"],
-        "product_card": ["[data-tkid]", "._1fQZEK", "a[href*='/p/']"],
-        "add_to_cart": ["button:has-text('Add to Cart')", "._2KpZ6l._2U9uOA._3v1-ww"],
-        "cart_icon": ["._3SkBxJ", "[href*='viewcart']", "a[href*='viewcart']"],
-        "place_order": ["text=Place Order", "button:has-text('Place Order')"],
-        "quantity_increase": ["button:has-text('+')", "._23FHuj", "[aria-label*='increase']"],
-        "continue_button": ["button:has-text('Continue')", "._2KpZ6l._1seccl._3AWRsL"]
-    }

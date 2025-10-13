@@ -4,8 +4,11 @@ import sys
 import os
 from typing import Dict, List, Any
 
-# Add current directory to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# --- Set the correct working directory ---
+# This ensures that all relative paths for configs, logs, and session files work correctly.
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
+sys.path.append(script_dir)
 
 from automation.core import UberAutomation
 from automation.steps import UberSteps
@@ -17,8 +20,14 @@ class SmartProductAutomation:
         self.logger = automation.logger
 
 async def main():
+    """The main entry point for the Uber automation script."""
     automation = UberAutomation()
-
+    try:
+        await automation.start()
+        # Keep the browser open for a moment to observe the result if not in headless mode
+        await asyncio.sleep(5)
+    finally:
+        await automation.stop()
 
 if __name__ == "__main__":
     try:
