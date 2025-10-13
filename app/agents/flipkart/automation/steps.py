@@ -1,10 +1,13 @@
 import asyncio
+from itertools import product
 import json
 import os
 import urllib.parse
 from typing import Dict, Optional, Any, List
 from automation.core import FlipkartAutomation
 import time
+from app.tools.flipkart_tools.search import product_info
+from app.prompts.flipkart_prompts.flipkart_prompt import flipkart_search_query_prompt 
 
 class FlipkartSteps:
     def __init__(self, automation: FlipkartAutomation):
@@ -238,7 +241,6 @@ class FlipkartSteps:
 
         self.logger.info("✅ Login successful, session saved.")
 
-
     async def _login_with_email(self):
         """Login using email"""
         email = input("Enter your email: ").strip()
@@ -363,32 +365,14 @@ class FlipkartSteps:
         self.logger.info("🔍 Generating precise search URL...")
         
         product_info = self.current_product
-        search_prompt = f"""
-            You are a system that generates concise Flipkart product search queries.
+        user_query = (
+            f"PRODUCT: {product_info.get('name', 'N/A')}\n"
+            f"CATEGORY: {product_info.get('category', 'N/A')}\n"
+            f"SPECIFICATIONS: {product_info.get('specifications', {})}\n"
+            f"OPTIONS: {product_info.get('options', {})}"
+        )
 
-            Your ONLY task is to create a product search string based on the provided data.
-
-            Instructions:
-            - Include: brand, model, and key specifications (RAM, storage, color, size, variant, etc.)
-            - If any detail is missing, skip it — do not invent or describe anything.
-            - DO NOT describe how to find, click, or interact with a search field.
-            - DO NOT output sentences, explanations, or code.
-            - Output ONLY the clean product query string suitable for direct Flipkart search.
-
-            Input:
-            PRODUCT: {product_info.get('name', 'N/A')}
-            CATEGORY: {product_info.get('category', 'N/A')}
-            SPECIFICATIONS: {product_info.get('specifications', {})}
-            OPTIONS: {product_info.get('options', {})}
-
-            Output:
-            A single line Flipkart search query string only.
-
-            Example output:
-            Samsung Galaxy S24 Ultra 12GB RAM 256GB Titanium Gray
-            """
-        
-        response = await self.llm.invoke(search_prompt)
+        response = await self.llm.invoke(flipkart_search_query_prompt,user_query)
         
         if response and response.get('query'):
             search_query = response['query'].strip().strip('"').strip("'")
@@ -410,6 +394,13 @@ class FlipkartSteps:
     async def step_1_launch_search_url(self):
         """Step 1: Launch the generated search URL"""
         self.logger.info("🚀 Launching search URL...")
+        # Call product_info, it should save output to flipkart.json as a side-effect,
+        # but to ensure this works, check for errors and log result for debugging.
+        product_information = await product_info(self.search_url)
+        if isinstance(product_information, dict) and product_information.get("error"):
+            self.logger.warning(f"LLM product info extraction failed: {product_information}")
+        else:
+            self.logger.info(f"Product info extracted and should be saved to flipkart.json")
         await self.page.goto(self.search_url, wait_until="networkidle")
         
         # Handle initial login modal if present

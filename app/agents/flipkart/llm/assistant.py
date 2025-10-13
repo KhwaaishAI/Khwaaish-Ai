@@ -35,7 +35,6 @@ class LLMAssistant:
         self.logger.warning("All LLM providers failed, using rule-based fallback")
         return self._get_rule_based_action(goal)
 
-
     async def analyze_failure(self, step_name: str, error: str, dom_snapshot: Dict) -> Dict[str, Any]:
         """
         Use LLM to analyze step failure and suggest a recovery plan (fallback if LLM fails).
@@ -54,52 +53,52 @@ class LLMAssistant:
     def _build_action_prompt(self, dom_snapshot: Dict, goal: str) -> str:
         # More focused prompt for updated workflow (works for both search and in-page actions)
         return f"""
-Analyze the following web page snapshot and suggest the most reliable CSS selector & action to accomplish the goal: "{goal}"
+        Analyze the following web page snapshot and suggest the most reliable CSS selector & action to accomplish the goal: "{goal}"
 
-Page Info:
-- Title: {dom_snapshot.get('title', 'N/A')}
-- URL: {dom_snapshot.get('url', 'N/A')}
+        Page Info:
+        - Title: {dom_snapshot.get('title', 'N/A')}
+        - URL: {dom_snapshot.get('url', 'N/A')}
 
-Relevant Interactive HTML (first 10 of each type):
-{self._extract_interactive_elements(dom_snapshot.get('body', ''))}
+        Relevant Interactive HTML (first 10 of each type):
+        {self._extract_interactive_elements(dom_snapshot.get('body', ''))}
 
-Please answer ONLY in this JSON format:
-{{
-    "action": "click/type/select/wait/navigate",
-    "selector": "css_selector_here",
-    "value": "optional_value_for_typing",
-    "confidence": 0.0-1.0,
-    "reason": "short_explanation"
-}}
+        Please answer ONLY in this JSON format:
+        {{
+            "action": "click/type/select/wait/navigate",
+            "selector": "css_selector_here",
+            "value": "optional_value_for_typing",
+            "confidence": 0.0-1.0,
+            "reason": "short_explanation"
+        }}
 
-Selector preference order:
-1. data-testid attribute
-2. aria-label attribute
-3. Button text
-4. Input name
-5. Key semantic class
+        Selector preference order:
+        1. data-testid attribute
+        2. aria-label attribute
+        3. Button text
+        4. Input name
+        5. Key semantic class
 
-Return nothing except the JSON.
-"""
+        Return nothing except the JSON.
+        """
 
     def _build_failure_prompt(self, step_name: str, error: str, dom_snapshot: Dict) -> str:
-        return f"""
-Web automation failed at step: {step_name}
-Error encountered: {error}
+            return f"""
+            Web automation failed at step: {step_name}
+            Error encountered: {error}
 
-Current page info:
-- Title: {dom_snapshot.get('title', 'N/A')}
-- URL: {dom_snapshot.get('url', 'N/A')}
+            Current page info:
+            - Title: {dom_snapshot.get('title', 'N/A')}
+            - URL: {dom_snapshot.get('url', 'N/A')}
 
-Suggest a concise fallback recovery plan in JSON as shown. If a simple reload or close-modal would help, include it in 'actions':
+            Suggest a concise fallback recovery plan in JSON as shown. If a simple reload or close-modal would help, include it in 'actions':
 
-{{
-    "analysis": "what_may_have_gone_wrong",
-    "actions": [
-        {{"type": "click/wait/navigate/reload", "selector": "css_selector", "reason": "why_this_helps"}}
-    ]
-}}
-"""
+            {{
+                "analysis": "what_may_have_gone_wrong",
+                "actions": [
+                    {{"type": "click/wait/navigate/reload", "selector": "css_selector", "reason": "why_this_helps"}}
+                ]
+            }}
+            """
 
     def _extract_interactive_elements(self, html: str) -> str:
         """Extract first N interactive elements for LLM prompt (for efficiency with big DOMs)."""
@@ -200,15 +199,70 @@ Suggest a concise fallback recovery plan in JSON as shown. If a simple reload or
             ]
         }
 
-    async def invoke(self, prompt: str, preferred_provider: Optional[str] = None) -> Dict[str, str]:
+    # async def invoke(self, prompt: str, preferred_provider: Optional[str] = None) -> Dict[str, str]:
+    #     """
+    #     Directly invoke the LLM with a given prompt and always return a standardized query response.
+    #     Returns:
+    #         {"query": "<final_search_query_string>"}
+    #     """
+
+    #     try:
+    #         response = await self.provider_manager.get_completion(
+    #             prompt,
+    #             preferred_provider=preferred_provider or self.config.PREFERRED_PROVIDER
+    #         )
+
+    #         if not response:
+    #             if self.logger:
+    #                 self.logger.warning("No response received from LLM provider.")
+    #             return {"query": ""}
+
+    #         # Attempt to extract query from JSON if LLM returns structured data
+    #         parsed_response = self._parse_llm_response(response)
+    #         if parsed_response and isinstance(parsed_response, dict):
+    #             if "query" in parsed_response:
+    #                 return {"query": parsed_response["query"].strip()}
+    #             # If JSON contains a single key-value, use its value as query
+    #             if len(parsed_response) == 1:
+    #                 return {"query": list(parsed_response.values())[0].strip()}
+
+    #         # Otherwise, treat raw text output as the query
+    #         clean_query = response.strip().strip('"').strip("'")
+    #         return {"query": clean_query}
+
+    #     except Exception as e:
+    #         if self.logger:
+    #             self.logger.error(f"Error during LLM invocation: {e}")
+    #         return {"query": ""}
+
+
+    async def invoke(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        preferred_provider: Optional[str] = None
+        ) -> Dict[str, str]:
         """
-        Directly invoke the LLM with a given prompt and always return a standardized query response.
+        Invoke the LLM with a system prompt and a user prompt, returning a standardized query response.
+        
+        Args:
+            system_prompt (str): The system-level instruction (context/rules for the LLM).
+            user_prompt (str): The actual user query or input.
+            preferred_provider (Optional[str]): Optional override for provider.
+        
         Returns:
-            {"query": "<final_search_query_string>"}
+            dict: {"query": "<final_search_query_string>"}
         """
         try:
+            # Combine system + user prompts in a structured format (standard for chat LLMs)
+            messages = [
+                {"role": "system", "content": system_prompt.strip()},
+                {"role": "user", "content": user_prompt.strip()}
+            ]
+
+            # Send both prompts to the provider
             response = await self.provider_manager.get_completion(
-                prompt,
+                prompt=messages,
                 preferred_provider=preferred_provider or self.config.PREFERRED_PROVIDER
             )
 
@@ -217,21 +271,21 @@ Suggest a concise fallback recovery plan in JSON as shown. If a simple reload or
                     self.logger.warning("No response received from LLM provider.")
                 return {"query": ""}
 
-            # Attempt to extract query from JSON if LLM returns structured data
+            # Attempt to parse JSON response if present
             parsed_response = self._parse_llm_response(response)
             if parsed_response and isinstance(parsed_response, dict):
                 if "query" in parsed_response:
                     return {"query": parsed_response["query"].strip()}
-                # If JSON contains a single key-value, use its value as query
                 if len(parsed_response) == 1:
                     return {"query": list(parsed_response.values())[0].strip()}
 
-            # Otherwise, treat raw text output as the query
-            clean_query = response.strip().strip('"').strip("'")
+            # Otherwise, use raw response text as query
+            clean_query = str(response).strip().strip('"').strip("'")
             return {"query": clean_query}
 
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error during LLM invocation: {e}")
             return {"query": ""}
+
 

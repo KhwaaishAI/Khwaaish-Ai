@@ -17,8 +17,23 @@ class LLMProvider:
             getattr(self.logger, level)(message)
         else:
             print(f"[{level.upper()}] {message}")
-        
+
+    def _normalize_prompt(self, prompt: Any) -> str:
+        """
+        Convert a chat-style message list into a single string if needed.
+        Ensures g4f and other text-only providers receive plain text.
+        """
+        if isinstance(prompt, list):
+            parts = []
+            for msg in prompt:
+                role = msg.get("role", "user").capitalize()
+                content = msg.get("content", "")
+                parts.append(f"{role}: {content}")
+            return "\n".join(parts)
+        return str(prompt)
+
     async def get_completion(self, prompt: str) -> Optional[str]:
+        prompt = self._normalize_prompt(prompt)
         raise NotImplementedError
 
 class OpenAIProvider(LLMProvider):
@@ -353,13 +368,27 @@ class LLMProviderManager:
         self.providers = []
         # Don't initialize providers here - wait for logger to be set
         
+    def _normalize_prompt(self, prompt: Any) -> str:
+        """
+        Convert chat message lists into a single plain-text prompt.
+        Ensures providers like g4f (which expect text) receive the correct input.
+        """
+        if isinstance(prompt, list):
+            parts = []
+            for msg in prompt:
+                role = msg.get("role", "user").capitalize()
+                content = msg.get("content", "")
+                parts.append(f"{role}: {content}")
+            return "\n".join(parts)
+        return str(prompt)
+    
     def set_logger(self, logger):
         self.logger = logger
         # Initialize providers only after logger is set
         self._initialize_providers()
         for provider in self.providers:
             provider.set_logger(logger)
-            
+     
     def _initialize_providers(self):
         """Initialize all available providers based on configuration"""
         providers = []
@@ -381,7 +410,7 @@ class LLMProviderManager:
         # providers.append(G4FProvider(self.config))
         
         self.providers = providers
-        
+
     def _safe_log(self, level: str, message: str):
         """Safely log messages without assuming logger is set"""
         if self.logger and hasattr(self.logger, level):
@@ -391,6 +420,7 @@ class LLMProviderManager:
             
     async def get_completion(self, prompt: str, preferred_provider: str = None) -> Optional[str]:
         """Get completion from providers with fallback"""
+        prompt = self._normalize_prompt(prompt)
         if preferred_provider:
             # Try preferred provider first
             for provider in self.providers:
