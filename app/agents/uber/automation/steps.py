@@ -163,8 +163,8 @@ class UberSteps:
             self.logger.error(f"Could not find or click the 'Ride' link after login: {e}")
             raise
 
-    async def enter_pickup_location(self):
-        """Prompts the user for a Enter location and enters it into the input field."""
+    async def enter_pickup_location(self, pickup_location: str):
+        """Enters the provided pickup location into the input field."""
         self.logger.info("Looking for the 'Enter location' input field.")
         try:
             # Target the desktop form container first, then the input within it
@@ -180,12 +180,7 @@ class UberSteps:
             # 4. Await the action
             await pickup_input.click()
             self.logger.info("Pickup location input field is now active.")
-            
-            # --- Interactive Input ---
-            pickup_prompt = "Please enter the pickup location: "
-            self.logger.info(pickup_prompt)
-            pickup_location = input(pickup_prompt).strip()
-            self.pickup_location = pickup_location  # Store it in the session
+            await asyncio.sleep(2)
             
             self.logger.info(f"Entering pickup location: '{pickup_location}'")
             await pickup_input.fill(pickup_location)
@@ -223,8 +218,8 @@ class UberSteps:
             self.logger.error(f"Failed to enter pickup location: {e}")
             raise
 
-    async def enter_destination_location(self):
-        """Prompts the user for a destination and enters it into the input field."""
+    async def enter_destination_location(self, destination_location: str):
+        """Enters the provided destination location into the input field."""
         self.logger.info("Looking for the 'Enter destination' input field.")
         try:
             # The destination input is usually visible after a pickup is selected.
@@ -235,12 +230,6 @@ class UberSteps:
             await destination_input.wait_for(state="visible", timeout=self.config.TIMEOUT)
             await destination_input.click()
             self.logger.info("Destination input field is now active.")
-
-            # --- Interactive Input ---
-            destination_prompt = "Please enter the destination location: "
-            self.logger.info(destination_prompt)
-            destination_location = input(destination_prompt).strip()
-            self.destination_location = destination_location  # Store it in the session
 
             self.logger.info(f"Entering destination location: '{destination_location}'")
             await destination_input.fill(destination_location)

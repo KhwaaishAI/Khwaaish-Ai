@@ -36,26 +36,41 @@ class UberAutomation:
         chosen_session_path = None
 
         if saved_sessions:
-            self.logger.info("Found saved sessions.")
-            use_saved = input("Do you want to use a previously saved session? (Y/N): ").strip().upper()
-            if use_saved == 'Y':
-                print("\nAvailable sessions:")
+            # Case 1: Only one session exists
+            if len(saved_sessions) == 1:
+                session_name = os.path.splitext(saved_sessions[0])[0]
+                use_single_session = input(f"Found saved session '{session_name}'. Use it? (Y/N): ").strip().upper()
+                if use_single_session == 'Y':
+                    chosen_session_path = os.path.join(sessions_dir, saved_sessions[0])
+                    self.logger.info(f"Using session: '{session_name}'")
+
+            # Case 2: Multiple sessions exist
+            else:
+                self.logger.info("Found multiple saved sessions.")
+                print("Please choose an option:")
+                print("  N: Start a new login session")
                 for i, session_file in enumerate(saved_sessions):
                     session_name = os.path.splitext(session_file)[0]
-                    print(f"  {i + 1}: {session_name}")
-                
+                    print(f"  {i + 1}: Use session '{session_name}'")
+
                 while True:
+                    choice_input = input(f"\nEnter your choice (N, 1-{len(saved_sessions)}): ").strip().upper()
+                    
+                    if choice_input == 'N':
+                        self.logger.info("Proceeding with a new login session.")
+                        break # chosen_session_path remains None
+
                     try:
-                        choice = int(input(f"\nEnter the number of the session to use (1-{len(saved_sessions)}): "))
-                        if 1 <= choice <= len(saved_sessions):
-                            chosen_session_file = saved_sessions[choice - 1]
+                        choice_num = int(choice_input)
+                        if 1 <= choice_num <= len(saved_sessions):
+                            chosen_session_file = saved_sessions[choice_num - 1]
                             chosen_session_path = os.path.join(sessions_dir, chosen_session_file)
                             self.logger.info(f"Selected session: {os.path.splitext(chosen_session_file)[0]}")
                             break
                         else:
-                            print("Invalid number. Please try again.")
+                            print(f"Invalid number. Please enter a number between 1 and {len(saved_sessions)}.")
                     except ValueError:
-                        print("Invalid input. Please enter a number.")
+                        print("Invalid input. Please enter 'N' or a valid number.")
         
         if chosen_session_path:
             self.logger.info("Loading saved session state...")
@@ -71,7 +86,7 @@ class UberAutomation:
             await self.page.goto("https://www.uber.com/in/en/start-riding/?_csid=tf88Y3Gcr0V7cKx-kcgqdA&sm_flow_id=hrZAftti&state=AScUbrw05Y_2-pEFluwHm6ezQw1Pi8a-2ytrb_vUixw%3D", wait_until="domcontentloaded")
             self.logger.info("Navigated to the Uber booking page. You should be logged in.")
             # A short wait to allow the page to settle and for you to see the result
-            await asyncio.sleep(5)
+            
 
         else:
             self.logger.info("Starting a new login session.")
@@ -123,15 +138,42 @@ class UberAutomation:
             self.logger.info("Clicking the 'Ride' link after login.")
             await steps.click_ride_link_after_login()
 
+        # --- Get User Input for Ride Details (This now runs for both new and saved sessions) ---
+        self.logger.info("Please provide the ride details.")
+        pickup_location = input("Enter the pickup location: ").strip()
+        destination_location = input("Enter the destination location: ").strip()
 
+        # Ask for preferred ride type
+        ride_types = ["Uber Go", "Auto3", "Bike1", "Go Sedan", "UberXL", "Premier"]
+        print("\nPlease select your preferred ride type:")
+        for i, ride_type in enumerate(ride_types):
+            print(f"  {i + 1}: {ride_type}")
+        
+        preferred_ride_choice = None
+        while True:
+            try:
+                choice_input = input(f"\nEnter the number for your preferred ride (1-{len(ride_types)}): ")
+                choice = int(choice_input)
+                if 1 <= choice <= len(ride_types):
+                    preferred_ride_choice = ride_types[choice - 1]
+                    self.logger.info(f"You prefer: {preferred_ride_choice}")
+                    break
+                else:
+                    print(f"Invalid selection. Please enter a number between 1 and {len(ride_types)}.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+        
+        
         # --- Common Steps After Login ---
+        await asyncio.sleep(5)
         await steps.click_ride_link_after_login()
-        await steps.enter_pickup_location()
+        await asyncio.sleep(5)
+        await steps.enter_pickup_location(pickup_location)
+        await asyncio.sleep(3)
         
         # Enter the destination location provided by the user
-        await steps.enter_destination_location()
+        await steps.enter_destination_location(destination_location)
         await asyncio.sleep(3)
-
         # Click the button to see ride options and prices
         await steps.click_see_prices_button()
         await asyncio.sleep(3)
@@ -141,32 +183,47 @@ class UberAutomation:
 
         # If ride data was extracted, use LLM for analysis and let the user choose.
         if ride_data:
-            if self.config.USE_LLM:
-                analysis_result = await self.llm.analyze_ride_options(ride_data)
-                if analysis_result:
-                    self.logger.info("--- LLM Ride Analysis ---")
-                    print(analysis_result)
-                    self.logger.info("--------------------------\n")
-
-            # Display ride options for user selection
-            self.logger.info("Please select a ride from the options below:")
-            for i, ride in enumerate(ride_data):
-                print(f"  {i + 1}: {ride['name']} - {ride['price']} ({ride['eta_and_time']})")
+            # Try to find the user's preferred ride automatically
+            matched_ride = None
+            for ride in ride_data:
+                # Check if the user's choice (e.g., "Auto") is in the ride name (e.g., "Auto")
+                if preferred_ride_choice.lower() in ride['name'].lower():
+                    matched_ride = ride
+                    break
             
-            # Get user choice
-            while True:
-                try:
-                    choice_input = input(f"\nEnter the number of the ride you want to select (1-{len(ride_data)}): ")
-                    choice = int(choice_input)
-                    if 1 <= choice <= len(ride_data):
-                        selected_ride = ride_data[choice - 1]
-                        self.logger.info(f"You selected: {selected_ride['name']}")
-                        await steps.select_ride_by_product_id(selected_ride['product_id'])
-                        break
-                    else:
-                        print(f"Invalid selection. Please enter a number between 1 and {len(ride_data)}.")
-                except ValueError:
-                    print("Invalid input. Please enter a number.")
+            if matched_ride:
+                self.logger.info(f"Preferred ride '{preferred_ride_choice}' found! Automatically selecting it.")
+                await steps.select_ride_by_product_id(matched_ride['product_id'])
+            else:
+                # If the preferred ride is not available, fall back to manual selection
+                self.logger.warning(f"Your preferred ride '{preferred_ride_choice}' is not available for this trip.")
+                
+                if self.config.USE_LLM:
+                    analysis_result = await self.llm.analyze_ride_options(ride_data)
+                    if analysis_result:
+                        self.logger.info("--- LLM Ride Analysis ---")
+                        print(analysis_result)
+                        self.logger.info("--------------------------\n")
+
+                # Display available ride options for user selection
+                self.logger.info("Please select from the available rides below:")
+                for i, ride in enumerate(ride_data):
+                    print(f"  {i + 1}: {ride['name']} - {ride['price']} ({ride['eta_and_time']})")
+                
+                # Get user choice
+                while True:
+                    try:
+                        choice_input = input(f"\nEnter the number of the ride you want to select (1-{len(ride_data)}): ")
+                        choice = int(choice_input)
+                        if 1 <= choice <= len(ride_data):
+                            selected_ride = ride_data[choice - 1]
+                            self.logger.info(f"You selected: {selected_ride['name']}")
+                            await steps.select_ride_by_product_id(selected_ride['product_id'])
+                            break
+                        else:
+                            print(f"Invalid selection. Please enter a number between 1 and {len(ride_data)}.")
+                    except ValueError:
+                        print("Invalid input. Please enter a number.")
         # The following steps are commented out as they were in the original file.
         # You can uncomment them to proceed with payment selection.
         # # After seeing prices, click to add a payment method
