@@ -1,8 +1,8 @@
 import re
 import json
 from typing import Any, Optional, List
-from config import Config
-from llm.provider import LLMProviderManager
+from app.agents.uber.config import Config
+from app.agents.uber.llm.provider import LLMProviderManager
 
 class LLMAssistant:
     def __init__(self, config: Config, logger):

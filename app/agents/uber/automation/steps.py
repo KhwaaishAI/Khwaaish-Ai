@@ -2,12 +2,14 @@ import asyncio
 import json
 import os
 import urllib.parse
+import re
+from datetime import datetime
 from typing import Dict, Optional, Any, List, TYPE_CHECKING
 import time
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 if TYPE_CHECKING:
-    from automation.core import UberAutomation
+    from app.agents.uber.core import UberAutomation
 
 class UberSteps:
     def __init__(self, automation: "UberAutomation"):
@@ -43,30 +45,20 @@ class UberSteps:
         """Enters the user's phone number or email into the login field and proceeds.
         Returns the login type ('P' for phone, 'E' for email) to determine the next step.
         """
-        # --- Interactive Login ---
-        # Ask the user for their preferred login method.
-        login_type_prompt = "How would you like to log in? (P)hone or (E)mail: "
-        self.logger.info(login_type_prompt)
-        login_type = input(login_type_prompt).strip().upper()
+        # This method now uses credentials provided via the API
+        if not self.automation.login_credential:
+            raise ValueError("Login credentials not provided from the API.")
 
-        if login_type == 'P':
-            credential_prompt = "Please enter your phone number (e.g., +15551234567): "
-        elif login_type == 'E':
-            credential_prompt = "Please enter your email address: "
-        else:
-            self.logger.error("Invalid selection. Please run the script again and choose 'P' or 'E'.")
-            raise ValueError("Invalid login type selected.")
+        login_type = self.automation.login_credential['type']
+        credential = self.automation.login_credential['value']
 
-        self.logger.info(credential_prompt)
-        credential = input(credential_prompt).strip()
-
-        self.logger.info(f"Entering login credential for user.")
+        self.logger.info(f"Entering login credential received from API.")
         try:
             # Locate the input field by its placeholder text
             login_input_selector = "input[placeholder='Enter phone number or email']"
             await self.automation.page.wait_for_selector(login_input_selector, timeout=self.config.TIMEOUT)
             await self.automation.page.fill(login_input_selector, credential)
-            self.logger.info("Successfully entered the phone number/email.")
+            self.logger.info(f"Successfully entered the {login_type} credential.")
 
             # Click the 'Next' or 'Continue' button to proceed
             # The error log showed multiple "Continue" buttons. Using the specific
@@ -112,27 +104,47 @@ class UberSteps:
             self.logger.error(f"Could not find or click 'login with email' button: {e}")
             raise
 
+    async def handle_post_credential_step(self):
+        """
+        After entering a credential, this function intelligently determines the next step.
+        If a password screen appears, it clicks 'Login with email' to switch to the OTP flow.
+        It ensures the browser is on the OTP entry screen before proceeding.
+        """
+        self.logger.info("Determining next step after credential entry...")
+        try:
+            otp_prompt_locator = self.automation.page.locator("text=/Enter the 4-digit code sent to/")
+            login_with_email_button = self.automation.page.locator('button[data-testid="Login with email"][data-baseweb="button"]')
+
+            # Wait for either the OTP prompt or the "Login with email" button to appear.
+            await asyncio.wait([
+                otp_prompt_locator.wait_for(state="visible", timeout=self.config.TIMEOUT),
+                login_with_email_button.wait_for(state="visible", timeout=self.config.TIMEOUT)
+            ], return_when=asyncio.FIRST_COMPLETED)
+
+            # If the "Login with email" button is visible, it means we're on the password screen.
+            if await login_with_email_button.is_visible():
+                self.logger.info("Password screen detected. Clicking 'Login with email' to switch to OTP flow.")
+                await login_with_email_button.click()
+                # After clicking, we must wait for the actual OTP screen to appear.
+                await otp_prompt_locator.wait_for(state="visible", timeout=self.config.TIMEOUT)
+                self.logger.info("Switched to OTP flow successfully. OTP screen is now visible.")
+            else:
+                self.logger.info("OTP screen detected directly. Ready for OTP input.")
+        except Exception as e:
+            self.logger.error(f"Failed to handle post-credential step: {e}")
+            raise
+
     async def enter_otp_code(self, login_type: str):
         """Waits for the OTP screen, prompts user for the 4-digit code, and enters it."""
-        self.logger.info("Waiting for the OTP entry screen...")
+        self.logger.info("Waiting for OTP to be provided via API...")
         try:
-            # Wait for the instruction text to ensure the page is ready
-            await self.automation.page.wait_for_selector("text=/Enter the 4-digit code sent to/", timeout=self.config.TIMEOUT)
-            self.logger.info("OTP screen detected.")
+            # Get OTP from the automation state, which was set by the API
+            otp_code = self.automation.otp_code
+            if not otp_code:
+                raise ValueError("OTP code not provided from the API.")
 
-            if login_type == 'P':
-                otp_prompt = "Enter the 4-digit code sent via SMS at: "
-            else:  # 'E'
-                otp_prompt = "Please enter the 4-digit code you received via Email: "
-
-            # Prompt user for the OTP from the terminal
-            self.logger.info(otp_prompt)
-            otp_code = input(otp_prompt).strip()
-
-            if not otp_code.isdigit() or len(otp_code) != 4:
-                self.logger.error("Invalid OTP format. It must be a 4-digit number.")
-                raise ValueError("Invalid OTP format.")
-
+            self.logger.info("Entering OTP received from API.")
+            
             # The OTP fields are often separate inputs. We will fill them one by one.
             # The selector targets the inputs within the pin-code container.
             otp_inputs = await self.automation.page.locator('[data-baseweb="pin-code"] input').all()
@@ -144,7 +156,7 @@ class UberSteps:
             else:
                 raise Exception(f"Expected 4 OTP input fields, but found {len(otp_inputs)}.")
         except Exception as e:
-            self.logger.error(f"Failed to enter OTP code: {e}")
+            self.logger.error(f"Failed to enter OTP code: {e}", exc_info=True)
             raise
 
     async def click_ride_link_after_login(self):
@@ -318,10 +330,10 @@ class UberSteps:
             self.logger.error(f"Could not find or click the 'Confirm' payment button: {e}")
             raise
 
-    async def extract_uber_rides_to_json(self, filename="uber_rides_data.json"):
+    async def extract_uber_rides_to_json(self):
         """
         Extracts ride details (Name, Price, ETA, Product ID) from the Uber product selection list
-        and saves them to a JSON file, using highly specific locators.
+        and saves them to a timestamped file with location context. Returns the current ride options.
         """
         page = self.automation.page
         
@@ -334,7 +346,7 @@ class UberSteps:
             await ride_options_locator.first.wait_for(state="visible", timeout=30000)
         except PlaywrightTimeoutError:
             self.logger.error("Timed out waiting for ride options to appear on the screen.")
-            return None
+            return []
 
         ride_data = []
         count = await ride_options_locator.count()
@@ -364,15 +376,26 @@ class UberSteps:
                 is_selected = await ride_element.get_attribute('aria-selected') == 'true'
 
                 # Extract Text (use strip() to clean whitespace)
-                ride_name = await name_locator.inner_text()
+                ride_name_raw = (await name_locator.inner_text()).strip()
                 price = await price_locator.inner_text()
                 # Extract ETA and remove unnecessary whitespace/newlines
                 eta_string = (await eta_locator.inner_text()).replace('\n', ' ').strip()
                 
+                # --- Logic to separate ride name and seat count ---
+                ride_name = ride_name_raw
+                seats = None
+                # Use regex to find a number at the end of the string, which usually indicates seat count.
+                match = re.search(r'^(.*?)\s*(\d+)$', ride_name_raw)
+                if match:
+                    # If a match is found, separate the name and the number of seats.
+                    ride_name = match.group(1).strip()
+                    seats = int(match.group(2))
+
                 # Append the structured data
                 ride_data.append({
                     "product_id": product_id,
-                    "name": ride_name.strip(),
+                    "name": ride_name,
+                    "seats": seats,
                     "price": price.strip(),
                     "eta_and_time": eta_string,
                     "is_selected": is_selected,
@@ -384,14 +407,27 @@ class UberSteps:
 
         # --- Save to JSON ---
         if ride_data:
-            # Ensure the path is within the agent's directory
-            output_path = os.path.join(os.path.dirname(__file__), '..', filename)
+            # Create a directory for historical ride data if it doesn't exist.
+            history_dir = os.path.join(os.path.dirname(__file__), '..', 'ride_history')
+            os.makedirs(history_dir, exist_ok=True)
+
+            # Structure the data to be saved, including locations.
+            archive_data = {
+                "search_timestamp": datetime.now().isoformat(),
+                "ride_options": ride_data
+            }
+
+            # Generate a filename with the current date and time.
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"ride_data_{timestamp}.json"
+            output_path = os.path.join(history_dir, filename)
+
             with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(ride_data, f, ensure_ascii=False, indent=4)
+                json.dump(archive_data, f, ensure_ascii=False, indent=4)
                 
-            self.logger.info(f"✅ Successfully extracted {len(ride_data)} ride options and saved to {output_path}")
+            self.logger.info(f"✅ Extracted {len(ride_data)} ride options. Saved archive to {output_path}")
         else:
-            self.logger.warning("Extraction failed: No ride data was successfully collected.")
+            self.logger.warning("Extraction failed: No ride data was collected.")
             
         return ride_data
 
