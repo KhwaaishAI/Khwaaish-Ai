@@ -27,10 +27,11 @@ class SmartProductAutomation:
         await self.steps.step_0_generate_search_url()
 
         # 2️⃣ Launch search URL
-        await self.steps.step_1_launch_search_url()
+        num = await self.steps.step_1_launch_search_url()
 
         # 3️⃣ Select exact product
-        await self.steps.step_2_select_exact_product()
+        while num:
+            await self.steps.step_2_select_exact_product()
 
         # 4️⃣ Handle options (size, color, storage)
         await self.steps.step_3_handle_product_options()

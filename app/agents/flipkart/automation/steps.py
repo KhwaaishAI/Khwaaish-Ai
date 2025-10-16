@@ -3,8 +3,11 @@ import json
 import os
 import urllib.parse
 from typing import Dict, Optional, Any, List
+from app.tools.flipkart_tools.search import FlipkartSearchTool
 from app.agents.flipkart.automation.core import FlipkartAutomation
 import time
+import asyncio
+import random
 # from app.tools.flipkart_tools.search import FlipkartExtractor 
 
 class FlipkartSteps:
@@ -370,57 +373,45 @@ class FlipkartSteps:
         # URL encode the search query
         encoded_query = urllib.parse.quote_plus(search_query)
         self.search_url = f"https://www.flipkart.com/search?q={encoded_query}"
-        
+        await self.page.goto(self.search_url, wait_until="networkidle")
         self.logger.info(f"🌐 Search URL: {self.search_url}")
-        return self.search_url
+        return encoded_query
 
     async def step_1_launch_search_url(self):
         """Step 1: Launch the generated search URL and let user select a product"""
         self.logger.info("🚀 Launching search URL...")
-        
+
         # Extract product information
-        # extracter = FlipkartExtractor()
-        # product_list = extracter.extract_from_tavily(self.search_url)
-        
-        # if not isinstance(product_list, list):
-        #     self.logger.warning(f"Product info extraction failed or unexpected format: {product_list}")
-        #     product_list = []
-        # else:
-        #     self.logger.info("Product info extracted successfully")
-        
+        extracter = FlipkartSearchTool()
+        try:
+            product_list = await extracter.search(self.search_url)
+            if not product_list:
+                return False
+        except Exception as e:
+            self.logger.warning(f"Product info extraction encountered an error: {e}")
+            return False
+
+        if not isinstance(product_list, list) or not product_list:
+            self.logger.warning(f"Product info extraction failed, returned unexpected format or no products: {product_list}")
+            return False
+        else:
+            self.logger.info("Product info extracted successfully")
+
         await self.page.goto(self.search_url, wait_until="networkidle")
-        
-        # Handle initial login modal if present
-        # login_close_selectors = [
-        #     "button._2KpZ6l._2doB4z",
-        #     "[data-testid='close-modal']",
-        #     "button:has-text('Close')",
-        #     "button:has-text('✕')"
-        # ]
-        
-        # for selector in login_close_selectors:
-        #     try:
-        #         if await self.page.is_visible(selector, timeout=5000):
-        #             await self.page.click(selector)
-        #             self.logger.info(f"✅ Initial modal closed: {selector}")
-        #             await asyncio.sleep(1)
-        #             break
-        #     except:
-        #         continue
-        
+
         # Display product information to user and get selection
-        # selected_product_url = await self.display_products_and_get_selection(product_list)
-        
-        # if selected_product_url:
-        #     # Update search URL to the selected product URL
-        #     self.search_url = selected_product_url
-        #     self.logger.info(f"🔄 Updated search URL to selected product: {self.search_url}")
-            
-        #     # Navigate to the selected product page
-        #     await self.page.goto(self.search_url, wait_until="networkidle")
-        #     self.logger.info("✅ Selected product page loaded successfully")
-        # else:
-        #     self.logger.info("ℹ️  No product selected, continuing with search results page")
+        selected_product_url = await self.display_products_and_get_selection(product_list)
+
+        if selected_product_url:
+            # Update search URL to the selected product URL
+            self.search_url = selected_product_url
+            self.logger.info(f"🔄 Updated search URL to selected product: {self.search_url}")
+
+            # Navigate to the selected product page
+            await self.page.goto(self.search_url, wait_until="networkidle")
+            self.logger.info("✅ Selected product page loaded successfully")
+        else:
+            self.logger.info("ℹ️  No product selected, continuing with search results page")
 
     async def display_products_and_get_selection(self, product_list):
         """Display products to user and return selected product URL"""
@@ -438,22 +429,52 @@ class FlipkartSteps:
             print(f"\n#{idx}")
             print(f"📦 Name: {product.get('name', 'N/A')}")
             print(f"🏷️  Brand: {product.get('brand', 'N/A')}")
-            print(f"💰 Price: ₹{product.get('current_price', 'N/A')}")
+            print(f"💰 Price: {product.get('current_price_display', 'N/A')}")
             
+            # Show original price and discount if available
             if product.get('original_price') and product.get('original_price') != product.get('current_price'):
-                print(f"💸 Original: ₹{product.get('original_price')} (Save {product.get('discount_percentage', 0)}%)")
+                discount = product.get('discount_percentage', '0')
+                print(f"💸 Original: {product.get('original_price_display')} (Save {discount}%)")
             
-            print(f"⭐ Rating: {product.get('rating', 'N/A')} ({product.get('ratings_count', 0)} ratings)")
-            print(f"📊 Reviews: {product.get('reviews_count', 0)}")
-            print(f"📦 Availability: {product.get('availability', 'N/A')}")
+            # Display rating and reviews
+            rating = product.get('rating')
+            ratings_count = product.get('ratings_count', '0')
+            reviews_count = product.get('reviews_count', '0')
             
-            # Display special tags if any
-            special_tags = product.get('special_tags', [])
-            if special_tags:
-                print(f"🏆 Tags: {', '.join(special_tags)}")
+            if rating:
+                print(f"⭐ Rating: {rating} ({ratings_count} ratings, {reviews_count} reviews)")
+            else:
+                print(f"⭐ Rating: N/A")
             
-            print(f"🔗 URL: {product.get('product_url', 'N/A')}")
-            print("-" * 60)
+            # Display availability
+            availability = product.get('availability', 'In Stock')
+            print(f"📦 Availability: {availability}")
+            
+            # Display badges/special tags if any
+            badges = product.get('badges', [])
+            if badges:
+                print(f"🏆 Tags: {', '.join(badges)}")
+            
+            # Display F-Assured badge
+            if product.get('f_assured'):
+                print(f"✓ F-Assured")
+            
+            # Display specifications if available
+            specs = product.get('specifications', [])
+            if specs:
+                print(f"📋 Key Specs:")
+                for spec in specs[:3]:  # Show first 3 specs
+                    print(f"   • {spec}")
+                if len(specs) > 3:
+                    print(f"   ... and {len(specs) - 3} more")
+            
+            # Display exchange offer if available
+            exchange_offer = product.get('exchange_offer')
+            if exchange_offer:
+                print(f"🔄 Exchange Offer: Up to ₹{exchange_offer} off")
+            
+            print(f"🔗 URL: {product.get('url', 'N/A')}")
+            print("-" * 80)
         
         # Get user selection
         while True:
@@ -467,10 +488,11 @@ class FlipkartSteps:
                 selection_num = int(selection)
                 if 1 <= selection_num <= len(product_list):
                     selected_product = product_list[selection_num - 1]
-                    product_url = selected_product.get('product_url')
+                    product_url = selected_product.get('url')
                     
                     if product_url:
                         print(f"✅ Selected: {selected_product.get('name')}")
+                        print(f"📍 URL: {product_url}")
                         return product_url
                     else:
                         print("❌ Selected product doesn't have a valid URL. Please choose another.")
@@ -482,7 +504,10 @@ class FlipkartSteps:
             except KeyboardInterrupt:
                 print("\n⏹️  Selection cancelled by user")
                 return None
-
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                return None
+                
     async def step_2_select_exact_product(self):
         """Step 2: Select the exact matching product from search results"""
         self.logger.info("🎯 Selecting exact product match...")
@@ -697,27 +722,26 @@ class FlipkartSteps:
             self.logger.warning(f"⚠️ Option selection failed: {str(e)}")
 
     def llm_selection(self, key: str, desired_value: str, available_value: str) -> bool:
-        """
-        Simple LLM-like logic to match product options intelligently.
-        Returns True if available_value matches desired_value.
-        """
-        key = key.lower()
-        desired_value = desired_value.lower()
-        available_value = available_value.lower()
+            """
+            Simple LLM-like logic to match product options intelligently.
+            Returns True if available_value matches desired_value.
+            """
+            key = key.lower()
+            desired_value = desired_value.lower()
+            available_value = available_value.lower()
 
-        # Exact match
-        if desired_value in available_value:
-            return True
+            # Exact match
+            if desired_value in available_value:
+                return True
 
-        # Partial match logic
-        if key in ['color', 'shade', 'variant']:
-            return desired_value.split()[0] in available_value
-        if key in ['size', 'storage', 'ram']:
-            return ''.join(filter(str.isalnum, desired_value)) in ''.join(filter(str.isalnum, available_value))
-        
-        # fallback: simple substring match
-        return desired_value in available_value
-
+            # Partial match logic
+            if key in ['color', 'shade', 'variant']:
+                return desired_value.split()[0] in available_value
+            if key in ['size', 'storage', 'ram']:
+                return ''.join(filter(str.isalnum, desired_value)) in ''.join(filter(str.isalnum, available_value))
+            
+            # fallback: simple substring match
+            return desired_value in available_value
     async def _check_delivery_availability(self) -> bool:
         """Check if product is available for delivery using pincode from session.json"""
         import os, json, asyncio
@@ -854,7 +878,7 @@ class FlipkartSteps:
 
         await asyncio.sleep(2)
         await self.page.wait_for_load_state('networkidle')
-        await self._scroll_page_for_elements()
+        # await self._scroll_page_for_elements()
 
         # Try Add to Cart
         cart_selectors = self.enhanced_selectors["add_to_cart"]
@@ -886,7 +910,7 @@ class FlipkartSteps:
 
         raise Exception("Could not add to cart")
 
-    async def _wait_for_cart_or_login_redirect(self, timeout: int = 10000):
+    async def _wait_for_cart_or_login_redirect(self, timeout: int = 1000):
         """Wait for either cart confirmation or login redirect"""
         self.logger.info("⏳ Waiting for cart or login redirect...")
         
@@ -969,6 +993,7 @@ class FlipkartSteps:
             await self._login_with_phone()
         else:
             self.logger.info("✅ Already logged in or no login required")
+
 
     async def step_7_fill_shipping_info(self):
         """Step 7: Fill shipping information, choose from saved addresses or enter new"""

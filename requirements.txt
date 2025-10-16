@@ -110,3 +110,5 @@ win32_setctime==1.2.0
 # 🧱 BUILD TOOLS
 # ======================
 pip==25.2
+
+Crawl4AI
