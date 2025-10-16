@@ -1,127 +1,112 @@
-# Core Dependencies - Minimum viable setup
-playwright>=1.40.0
-openai>=1.3.0
-python-dotenv>=1.0.0
-beautifulsoup4>=4.12.0
-lxml>=4.9.0
-tenacity>=8.2.0
-pydantic>=2.0.0
-aiohttp>=3.9.0
-loguru>=0.7.0
-# Core Dependencies
-playwright>=1.40.0
-python-dotenv>=1.0.0
+# ======================
+# 🧩 CORE DEPENDENCIES
+# ======================
+beautifulsoup4==4.14.2
+loguru==0.7.3
+lxml==6.0.2
+playwright==1.55.0
+pydantic==2.12.0
+python-dotenv==1.1.1
+tenacity==9.1.2
 
-# LLM Providers
-openai>=1.3.0
-anthropic>=0.7.0
-google-generativeai>=0.3.0
-boto3>=1.28.0
-g4f>=0.1.7
+# ======================
+# 🧠 LLM PROVIDERS
+# ======================
+anthropic==0.69.0
+boto3==1.40.50
+botocore==1.40.50
+g4f==0.6.4.0
+google-generativeai==0.8.5
+openai==2.3.0
 
-# Utilities
-aiohttp>=3.9.0
-requests>=2.31.0
-asyncio>=3.9.0
-
-# For AWS Bedrock (additional)
-botocore>=1.31.0
-# Core Dependencies
-playwright>=1.40.0
-python-dotenv>=1.0.0
-
-# LLM Providers
-openai>=1.3.0
-anthropic>=0.7.0
-google-generativeai>=0.3.0
-boto3>=1.28.0
-g4f>=0.2.0.1  # Latest version with new client API
-
-# Utilities
-aiohttp>=3.9.0
-requests>=2.31.0
-asyncio>=3.9.0
-
-# For AWS Bedrock
-botocore>=1.31.0
-
-
-
+# ======================
+# ⚙️ UTILITIES & NETWORKING
+# ======================
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.0
 aiosignal==1.4.0
-annotated-types==0.7.0
-anthropic==0.69.0
-anyio==4.11.0
 asyncio==4.0.0
 attrs==25.4.0
-beautifulsoup4==4.14.2
-boto3==1.40.50
-botocore==1.40.50
-Brotli==1.1.0
+httpx==0.28.1
+requests==2.31.0
+tqdm==4.67.1
+typing_extensions==4.15.0
+
+# ======================
+# ☁️ GOOGLE API & AUTH
+# ======================
+google-ai-generativelanguage==0.6.15
+google-api-core==2.26.0
+google-api-python-client==2.184.0
+google-auth==2.41.1
+google-auth-httplib2==0.2.0
+googleapis-common-protos==1.70.0
+grpcio==1.75.1
+grpcio-status==1.71.2
+proto-plus==1.26.1
+protobuf==5.29.5
+uritemplate==4.2.0
+
+# ======================
+# 🔐 SECURITY & CRYPTOGRAPHY
+# ======================
+pyasn1==0.6.1
+pyasn1_modules==0.4.2
+pycryptodome==3.23.0
+rsa==4.9.1
+
+# ======================
+# ⚡ WEB FRAMEWORKS & API
+# ======================
+fastapi==0.119.0
+starlette==0.48.0
+uvicorn==0.37.0
+
+# ======================
+# 🧠 ASYNC & COMPATIBILITY HELPERS
+# ======================
+frozenlist==1.8.0
+multidict==6.7.0
+nest-asyncio==1.6.0
+sniffio==1.3.1
+yarl==1.22.0
+
+# ======================
+# 🧰 PARSING, FORMATTING & MISC
+# ======================
+annotated-types==0.7.0
+docstring_parser==0.17.0
+pyparsing==3.2.5
+python-dateutil==2.9.0.post0
+regex==2025.9.18
+six==1.17.0
+soupsieve==2.8
+typing-inspection==0.4.2
+
+# ======================
+# 💾 AWS & CLOUD UTILITIES
+# ======================
+jmespath==1.0.1
+s3transfer==0.14.0
+
+# ======================
+# 🧭 OTHER USEFUL PACKAGES
+# ======================
 cachetools==6.2.0
 certifi==2025.10.5
 charset-normalizer==3.4.3
 click==8.3.0
 colorama==0.4.6
 distro==1.9.0
-docstring_parser==0.17.0
-fastapi==0.119.0
-frozenlist==1.8.0
-g4f==0.6.4.0
-google-ai-generativelanguage==0.6.15
-google-api-core==2.26.0
-google-api-python-client==2.184.0
-google-auth==2.41.1
-google-auth-httplib2==0.2.0
-google-generativeai==0.8.5
-googleapis-common-protos==1.70.0
 greenlet==3.2.4
-grpcio==1.75.1
-grpcio-status==1.71.2
-h11==0.16.0
-httpcore==1.0.9
-httplib2==0.31.0
-httpx==0.28.1
 idna==3.10
-jiter==0.11.0
-jmespath==1.0.1
-loguru==0.7.3
-lxml==6.0.2
-multidict==6.7.0
-nest-asyncio==1.6.0
-openai==2.3.0
-pip==25.2
-playwright==1.55.0
-propcache==0.4.1
-proto-plus==1.26.1
-protobuf==5.29.5
-pyasn1==0.6.1
-pyasn1_modules==0.4.2
-pycryptodome==3.23.0
-pydantic==2.12.0
-pydantic_core==2.41.1
 pyee==13.0.0
-pyparsing==3.2.5
-python-dateutil==2.9.0.post0
-python-dotenv==1.1.1
-regex==2025.9.18
-requests==2.31.0
-rsa==4.9.1
-s3transfer==0.14.0
 scraperapi-sdk==1.5.4
-six==1.17.0
-sniffio==1.3.1
-soupsieve==2.8
-starlette==0.48.0
 tavily-python==0.7.12
-tenacity==9.1.2
-tiktoken==0.12.0
-tqdm==4.67.1
-typing_extensions==4.15.0
-typing-inspection==0.4.2
-uritemplate==4.2.0
 urllib3==2.5.0
-uvicorn==0.37.0
 win32_setctime==1.2.0
-yarl==1.22.0
+
+# ======================
+# 🧱 BUILD TOOLS
+# ======================
+pip==25.2

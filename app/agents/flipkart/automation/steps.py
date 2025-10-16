@@ -391,36 +391,36 @@ class FlipkartSteps:
         await self.page.goto(self.search_url, wait_until="networkidle")
         
         # Handle initial login modal if present
-        login_close_selectors = [
-            "button._2KpZ6l._2doB4z",
-            "[data-testid='close-modal']",
-            "button:has-text('Close')",
-            "button:has-text('✕')"
-        ]
+        # login_close_selectors = [
+        #     "button._2KpZ6l._2doB4z",
+        #     "[data-testid='close-modal']",
+        #     "button:has-text('Close')",
+        #     "button:has-text('✕')"
+        # ]
         
-        for selector in login_close_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.click(selector)
-                    self.logger.info(f"✅ Initial modal closed: {selector}")
-                    await asyncio.sleep(1)
-                    break
-            except:
-                continue
+        # for selector in login_close_selectors:
+        #     try:
+        #         if await self.page.is_visible(selector, timeout=5000):
+        #             await self.page.click(selector)
+        #             self.logger.info(f"✅ Initial modal closed: {selector}")
+        #             await asyncio.sleep(1)
+        #             break
+        #     except:
+        #         continue
         
         # Display product information to user and get selection
-        selected_product_url = await self.display_products_and_get_selection(product_list)
+        # selected_product_url = await self.display_products_and_get_selection(product_list)
         
-        if selected_product_url:
-            # Update search URL to the selected product URL
-            self.search_url = selected_product_url
-            self.logger.info(f"🔄 Updated search URL to selected product: {self.search_url}")
+        # if selected_product_url:
+        #     # Update search URL to the selected product URL
+        #     self.search_url = selected_product_url
+        #     self.logger.info(f"🔄 Updated search URL to selected product: {self.search_url}")
             
-            # Navigate to the selected product page
-            await self.page.goto(self.search_url, wait_until="networkidle")
-            self.logger.info("✅ Selected product page loaded successfully")
-        else:
-            self.logger.info("ℹ️  No product selected, continuing with search results page")
+        #     # Navigate to the selected product page
+        #     await self.page.goto(self.search_url, wait_until="networkidle")
+        #     self.logger.info("✅ Selected product page loaded successfully")
+        # else:
+        #     self.logger.info("ℹ️  No product selected, continuing with search results page")
 
     async def display_products_and_get_selection(self, product_list):
         """Display products to user and return selected product URL"""
