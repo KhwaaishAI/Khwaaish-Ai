@@ -1,13 +1,11 @@
 import asyncio
-from itertools import product
 import json
 import os
 import urllib.parse
 from typing import Dict, Optional, Any, List
-from automation.core import FlipkartAutomation
+from app.agents.flipkart.automation.core import FlipkartAutomation
 import time
-from app.tools.flipkart_tools.search import product_info
-from app.prompts.flipkart_prompts.flipkart_prompt import flipkart_search_query_prompt 
+# from app.tools.flipkart_tools.search import FlipkartExtractor 
 
 class FlipkartSteps:
     def __init__(self, automation: FlipkartAutomation):
@@ -365,22 +363,7 @@ class FlipkartSteps:
         self.logger.info("🔍 Generating precise search URL...")
         
         product_info = self.current_product
-        user_query = (
-            f"PRODUCT: {product_info.get('name', 'N/A')}\n"
-            f"CATEGORY: {product_info.get('category', 'N/A')}\n"
-            f"SPECIFICATIONS: {product_info.get('specifications', {})}\n"
-            f"OPTIONS: {product_info.get('options', {})}"
-        )
-
-        response = await self.llm.invoke(flipkart_search_query_prompt,user_query)
-        
-        if response and response.get('query'):
-            search_query = response['query'].strip().strip('"').strip("'")
-            # Clean up any extra text from LLM response
-            search_query = search_query.split('\n')[0].strip()
-        else:
-            # Fallback to product name
-            search_query = product_info.get('name', '')
+        search_query = product_info.get('name', '')
         
         self.logger.info(f"🎯 Generated search query: {search_query}")
         
@@ -392,15 +375,19 @@ class FlipkartSteps:
         return self.search_url
 
     async def step_1_launch_search_url(self):
-        """Step 1: Launch the generated search URL"""
+        """Step 1: Launch the generated search URL and let user select a product"""
         self.logger.info("🚀 Launching search URL...")
-        # Call product_info, it should save output to flipkart.json as a side-effect,
-        # but to ensure this works, check for errors and log result for debugging.
-        product_information = await product_info(self.search_url)
-        if isinstance(product_information, dict) and product_information.get("error"):
-            self.logger.warning(f"LLM product info extraction failed: {product_information}")
-        else:
-            self.logger.info(f"Product info extracted and should be saved to flipkart.json")
+        
+        # Extract product information
+        # extracter = FlipkartExtractor()
+        # product_list = extracter.extract_from_tavily(self.search_url)
+        
+        # if not isinstance(product_list, list):
+        #     self.logger.warning(f"Product info extraction failed or unexpected format: {product_list}")
+        #     product_list = []
+        # else:
+        #     self.logger.info("Product info extracted successfully")
+        
         await self.page.goto(self.search_url, wait_until="networkidle")
         
         # Handle initial login modal if present
@@ -421,7 +408,80 @@ class FlipkartSteps:
             except:
                 continue
         
-        self.logger.info("✅ Search page loaded successfully")
+        # Display product information to user and get selection
+        selected_product_url = await self.display_products_and_get_selection(product_list)
+        
+        if selected_product_url:
+            # Update search URL to the selected product URL
+            self.search_url = selected_product_url
+            self.logger.info(f"🔄 Updated search URL to selected product: {self.search_url}")
+            
+            # Navigate to the selected product page
+            await self.page.goto(self.search_url, wait_until="networkidle")
+            self.logger.info("✅ Selected product page loaded successfully")
+        else:
+            self.logger.info("ℹ️  No product selected, continuing with search results page")
+
+    async def display_products_and_get_selection(self, product_list):
+        """Display products to user and return selected product URL"""
+        
+        if not product_list:
+            print("❌ No product information available. Please select manually from the search results.")
+            return None
+        
+        print("\n" + "="*80)
+        print("🛍️  AVAILABLE PRODUCTS")
+        print("="*80)
+        
+        # Display numbered product list
+        for idx, product in enumerate(product_list, 1):
+            print(f"\n#{idx}")
+            print(f"📦 Name: {product.get('name', 'N/A')}")
+            print(f"🏷️  Brand: {product.get('brand', 'N/A')}")
+            print(f"💰 Price: ₹{product.get('current_price', 'N/A')}")
+            
+            if product.get('original_price') and product.get('original_price') != product.get('current_price'):
+                print(f"💸 Original: ₹{product.get('original_price')} (Save {product.get('discount_percentage', 0)}%)")
+            
+            print(f"⭐ Rating: {product.get('rating', 'N/A')} ({product.get('ratings_count', 0)} ratings)")
+            print(f"📊 Reviews: {product.get('reviews_count', 0)}")
+            print(f"📦 Availability: {product.get('availability', 'N/A')}")
+            
+            # Display special tags if any
+            special_tags = product.get('special_tags', [])
+            if special_tags:
+                print(f"🏆 Tags: {', '.join(special_tags)}")
+            
+            print(f"🔗 URL: {product.get('product_url', 'N/A')}")
+            print("-" * 60)
+        
+        # Get user selection
+        while True:
+            try:
+                selection = input(f"\n🎯 Select a product (1-{len(product_list)}) or press Enter to skip: ").strip()
+                
+                if selection == "":
+                    print("⏩ Skipping product selection...")
+                    return None
+                
+                selection_num = int(selection)
+                if 1 <= selection_num <= len(product_list):
+                    selected_product = product_list[selection_num - 1]
+                    product_url = selected_product.get('product_url')
+                    
+                    if product_url:
+                        print(f"✅ Selected: {selected_product.get('name')}")
+                        return product_url
+                    else:
+                        print("❌ Selected product doesn't have a valid URL. Please choose another.")
+                else:
+                    print(f"❌ Please enter a number between 1 and {len(product_list)}")
+                    
+            except ValueError:
+                print("❌ Please enter a valid number")
+            except KeyboardInterrupt:
+                print("\n⏹️  Selection cancelled by user")
+                return None
 
     async def step_2_select_exact_product(self):
         """Step 2: Select the exact matching product from search results"""

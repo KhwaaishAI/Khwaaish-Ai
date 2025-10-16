@@ -219,8 +219,31 @@ DEFAULT_SHIPPING_INFO = {
 }
 
 def auto_select_product():
-    """Select a product automatically"""
-    return PRODUCT_CONFIGS["hp_laserjet_pro"]
+    """Let user see and select a product from PRODUCT_CONFIGS."""
+    print("\n" + "="*60)
+    print("🛒 Available Products")
+    print("="*60)
+    keys = list(PRODUCT_CONFIGS.keys())
+    for idx, key in enumerate(keys, 1):
+        prod = PRODUCT_CONFIGS[key]
+        print(f"{idx}. {prod['name']}  (Category: {prod.get('category', 'N/A')})")
+        specs = prod.get("specifications", {})
+        print("   Specs:", ", ".join(f"{k}: {v}" for k, v in specs.items()))
+        print("-" * 40)
+    # Selection loop
+    while True:
+        try:
+            choice = input(f"Select product [1-{len(keys)}]: ").strip()
+            if not choice: choice = "1"
+            idx = int(choice)
+            if 1 <= idx <= len(keys):
+                selected_product = PRODUCT_CONFIGS[keys[idx-1]]
+                print(f"👉 Selected: {selected_product['name']}\n")
+                return selected_product
+            else:
+                print(f"Please enter a number between 1 and {len(keys)}.")
+        except (ValueError, IndexError):
+            print("Invalid input. Try again.")
 
 import json
 

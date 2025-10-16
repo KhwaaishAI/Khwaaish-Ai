@@ -1,9 +1,9 @@
 import asyncio
 from typing import Dict, Any, Callable
 from playwright.async_api import async_playwright
-from config import Config
-from llm.assistant import LLMAssistant
-from utills.logger import setup_logger
+from app.agents.flipkart.config import Config
+from app.agents.flipkart.llm.assistant import LLMAssistant
+from app.agents.flipkart.utills.logger import setup_logger
 
 class FlipkartAutomation:
     def __init__(self):

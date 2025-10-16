@@ -1,100 +1,168 @@
-import os
-from tavily import TavilyClient
-from dotenv import load_dotenv
 import json
-from app.prompts.flipkart_prompts.flipkart_prompt import product_info_prompt
-from config import Config
+import re
+import g4f
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Any
+import time
+import os
+from dotenv import load_dotenv
+from tavily import TavilyClient
+from app.prompts.flipkart_prompts.flipkart_prompt import PROMPT
 
+# Load environment variables
 load_dotenv()
 
+class FlipkartExtractor:
+    def __init__(self):
+        self.max_concurrent_requests = 8
+        self.chunk_size = 10000
+        self.prompt = PROMPT
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY")
+        if self.tavily_api_key:
+            self.tavily_client = TavilyClient(self.tavily_api_key)
+        else:
+            self.tavily_client = None
+
+    def extract_products_batch(self, chunks: List[str]) -> List[Dict[str, Any]]:
+        """Process chunks in parallel batches for maximum speed."""
+        all_products = []
+        completed = 0
+        
+        with ThreadPoolExecutor(max_workers=self.max_concurrent_requests) as executor:
+            # Submit all chunks at once
+            future_to_chunk = {
+                executor.submit(self.process_single_chunk, chunk): i 
+                for i, chunk in enumerate(chunks)
+            }
+            
+            # Process completed futures
+            for future in as_completed(future_to_chunk):
+                try:
+                    result = future.result(timeout=30)
+                    if result:
+                        all_products.extend(result)
+                    completed += 1
+                    print(f"✅ Chunk {completed}/{len(chunks)} processed")
+                except Exception:
+                    completed += 1
+                    print(f"❌ Chunk {completed}/{len(chunks)} failed")
+        
+        return all_products
+
+    def process_single_chunk(self, chunk: str) -> List[Dict[str, Any]]:
+        """Process single chunk with g4f."""
+        if len(chunk.strip()) < 100:
+            return []
+        
+        try:
+            response = g4f.ChatCompletion.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": self.prompt},
+                    {"role": "user", "content": chunk[:8000]}  # Limit input size
+                ],
+                timeout=30
+            )
+            
+            text = str(response)
+            match = re.search(r'\[.*\]', text, re.DOTALL)
+            if match:
+                return json.loads(match.group(0))
+            return []
+            
+        except Exception:
+            return []
+
+    def extract_from_html_file(self, html_file: str = "flipkart_page.html", output_file: str = "flipkart_products.json"):
+        """Extract products from HTML file."""
+        print("🔥 ULTRA-FAST BATCH PROCESSING")
+        start = time.time()
+        
+        # Read and prepare data
+        with open(html_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Quick extraction
+        match = re.search(r'(\[!\[Image \d+\].*?)(Page \d+ of)', content, re.DOTALL)
+        product_section = match.group(1) if match else content
+        
+        # Fast chunking
+        chunks = re.split(r'(?=\[!\[Image \d+\])', product_section)
+        chunks = [chunk for chunk in chunks if len(chunk) > 500]
+        
+        print(f"🎯 Processing {len(chunks)} chunks with {self.max_concurrent_requests} parallel workers...")
+        
+        # Batch process all chunks
+        products = self.extract_products_batch(chunks)
+        
+        # Save
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(products, f, separators=(',', ':'), ensure_ascii=False)
+        
+        total = time.time() - start
+        print(f"🚀 COMPLETE: {len(products)} products in {total:.1f}s ({len(products)/total:.1f} products/sec)")
+        
+        return products
+
+    def extract_from_tavily(self, search_query: str, output_file: str = "flipkart_products.json"):
+        """Extract products from Flipkart using Tavily API."""
+        if not self.tavily_client:
+            print("❌ Tavily API key not found. Please set TAVILY_API_KEY in .env file")
+            return []
+        
+        print(f"🔍 Fetching data from Flipkart for: {search_query}")
+        start = time.time()
+        
+        try:
+            response = self.tavily_client.extract(
+                urls=[search_query],
+                extract_depth="advanced",
+                format="text"
+            )
+            # Extract HTML content from Tavily response
+            # Tavily response is a JSON dict; extract 'raw_content' as html string
+            if isinstance(response, dict) and "results" in response and response["results"]:
+                html_content = response["results"][0].get("raw_content", "")
+            else:
+                html_content = ""
+            
+            # Quick extraction
+            match = re.search(r'(\[!\[Image \d+\].*?)(Page \d+ of)', html_content, re.DOTALL)
+            product_section = match.group(1) if match else html_content
+            
+            # Fast chunking
+            chunks = re.split(r'(?=\[!\[Image \d+\])', product_section)
+            chunks = [chunk for chunk in chunks if len(chunk) > 500]
+            
+            print(f"🎯 Processing {len(chunks)} chunks with {self.max_concurrent_requests} parallel workers...")
+            
+            # Batch process all chunks
+            products = self.extract_products_batch(chunks)
+            
+            # Save
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(products, f, separators=(',', ':'), ensure_ascii=False)
+            
+            total = time.time() - start
+            print(f"🚀 COMPLETE: {len(products)} products in {total:.1f}s ({len(products)/total:.1f} products/sec)")
+            
+            return products
+            
+        except Exception as e:
+            print(f"❌ Error fetching data from Tavily: {e}")
+            return []
 
 
-from app.agents.flipkart.llm.assistant import LLMAssistant
-
-llm = LLMAssistant(Config)
-
-async def tavily(url, automation=None):
-    import logging
-    if automation and hasattr(automation, 'logger'):
-        logger = automation.logger
-    else:
-        logger = logging.getLogger("flipkart_tools.search")
+# def main():
+#     # Example usage
+#     extractor = FlipkartExtractor()
     
-    tavily_api_key = os.getenv("TAVILY_API_KEY", "")
-    if not tavily_api_key:
-        logger.warning("TAVILY_API_KEY not found in environment variables.")
-        return None
-
-    tavily_client = TavilyClient(api_key=tavily_api_key)
-    try:
-        logger.info(f"Extracting content from URL: {url}")
-        response = tavily_client.extract(url)
-
-        # New response structure
-        results = response.get("results", [])
-        if not results:
-            logger.warning("No results returned from Tavily.")
-            return None
-
-        first_result = results[0]
-        raw_content = first_result.get("raw_content", "")
-        images = first_result.get("images", [])
-        favicon = first_result.get("favicon", "")
-        extracted_url = first_result.get("url", "")
-
-        if raw_content:
-            logger.info("Successfully extracted raw_content from Tavily.")
-        else:
-            logger.warning("raw_content is empty for the given URL.")
-
-        return {
-            "raw_content": raw_content,
-            "images": images,
-            "favicon": favicon,
-            "url": extracted_url
-        }
-
-    except Exception as e:
-        logger.error(f"Error extracting content from Tavily: {str(e)}")
-        return None
+#     # Option 1: Extract from HTML file
+#     # products = extractor.extract_from_html_file("flipkart_page.html", "products.json")
+    
+#     # Option 2: Extract directly from Flipkart using Tavily
+#     products = extractor.extract_from_tavily("HP Printer", "flipkart_products.json")
 
 
-async def product_info(url):
-    # Get content from Tavily
-    content_data = await tavily(url)
-    if not content_data or not content_data.get("raw_content"):
-        return {"error": "No content extracted from URL."}
-
-    raw_html = content_data["raw_content"]
-    user_query = f"RAW_HTML:{raw_html}"
-
-    try:
-        # Analyze content with LLM
-        result = await llm.invoke(product_info_prompt, user_query)
-        if result:
-            try:
-                analysis_json = json.loads(result)
-            except Exception:
-                analysis_json = {"raw_output": result}
-            analysis = analysis_json
-        else:
-            analysis = {"error": "LLM did not return a response"}
-    except Exception as e:
-        analysis = {"error": "Exception during analysis", "details": str(e)}
-
-    # Include Tavily metadata in output
-    analysis["_source"] = {
-        "url": content_data.get("url"),
-        "images": content_data.get("images"),
-        "favicon": content_data.get("favicon")
-    }
-
-    # Save analyzed data to file
-    filename = "flipkart.json"
-    try:
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(analysis, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return {"error": "Failed to save analysis output.", "details": str(e)}
-
-    return analysis
+# if __name__ == "__main__":
+#     main()

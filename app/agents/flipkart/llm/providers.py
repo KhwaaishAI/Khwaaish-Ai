@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional
 import openai
-from config import Config
+from app.agents.flipkart.config import Config
 import asyncio
 
 class LLMProvider:
