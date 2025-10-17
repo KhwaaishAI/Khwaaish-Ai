@@ -446,3 +446,19 @@ class UberSteps:
         except Exception as e:
             self.logger.error(f"Failed to select ride with product ID '{product_id}': {e}")
             raise
+
+    async def click_request_ride_button(self):
+        """
+        Finds and clicks the final 'Request' button to book the selected ride.
+        """
+        self.logger.info("Attempting to click the 'Request' button for the selected ride.")
+        try:
+            # This selector is based on the provided HTML and is highly specific.
+            request_button_selector = self.automation.page.locator('button[data-testid="request_trip_button"]')
+            
+            await request_button_selector.wait_for(state="visible", timeout=self.config.TIMEOUT)
+            await request_button_selector.click()
+            self.logger.info("✅ Successfully clicked the 'Request' button. The ride should be booked.")
+        except Exception as e:
+            self.logger.error(f"Failed to find or click the 'Request' button: {e}")
+            raise

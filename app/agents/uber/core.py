@@ -150,7 +150,9 @@ class UberAutomation:
             if matched_ride:
                 self._update_status("running", f"Preferred ride '{preferred_ride_choice}' found. Automatically selecting.")
                 await steps.select_ride_by_product_id(matched_ride['product_id'])
-                self._update_status("completed", "Ride has been selected.")
+                await asyncio.sleep(1) # Brief pause for UI to update
+                await steps.click_request_ride_button()
+                self._update_status("completed", f"Ride '{matched_ride['name']}' has been requested.")
             else:
                 self._update_status("waiting_for_ride_choice", f"Preferred ride '{preferred_ride_choice}' not available. Please select from the available options.")
                 
@@ -161,7 +163,9 @@ class UberAutomation:
                     selected_ride = self.ride_data[self.user_choice]
                     self._update_status("running", f"User selected: {selected_ride['name']}. Proceeding.")
                     await steps.select_ride_by_product_id(selected_ride['product_id'])
-                    self._update_status("completed", "Ride has been selected.")
+                    await asyncio.sleep(1) # Brief pause for UI to update
+                    await steps.click_request_ride_button()
+                    self._update_status("completed", f"Ride '{selected_ride['name']}' has been requested.")
                 else:
                     self._update_status("error", "No ride was selected.")
         else:
