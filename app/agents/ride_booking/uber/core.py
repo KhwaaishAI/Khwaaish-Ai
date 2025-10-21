@@ -87,15 +87,16 @@ class UberAutomation:
 
     async def book_ride(self, ride_details: Dict[str, Any]):
         """Selects a specific ride from the list and clicks the final request button."""
-        if not ride_details or 'product_id' not in ride_details:
+        # The API passes the full ride object. We use it directly.
+        if not ride_details or 'product_id' not in ride_details or 'name' not in ride_details:
             raise ValueError("Invalid ride details provided for booking.")
 
         product_id = ride_details['product_id']
-        ride_name = ride_details.get('name', 'Unknown Ride')
+        ride_name = ride_details['name']
 
         self._update_status("running", f"Selecting ride '{ride_name}' on the page.")
         await self.steps.select_ride_by_product_id(product_id)
-        await asyncio.sleep(20)
+        await asyncio.sleep(10)
 
         # The final booking step is commented out in steps.py, but if enabled, it would be called here.
         # self.logger.info(f"Requesting ride: {ride_name}")

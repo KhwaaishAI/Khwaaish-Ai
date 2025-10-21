@@ -232,7 +232,7 @@ class UberSteps:
 
             self.logger.info(f"Entering destination location: '{destination_location}'")
             await destination_input.fill(destination_location)
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
             self.logger.info("Successfully entered destination location.")
 
             # --- Wait for and click the first suggestion ---
@@ -425,13 +425,19 @@ class UberSteps:
         self.logger.info(f"Attempting to select ride with product ID: {product_id}")
         try:
             # The product_id corresponds to the 'data-itemid' attribute of the list item.
+            self.logger.debug(f"Looking for ride element with selector: li[data-itemid=\"{product_id}\"]")
             ride_selector = self.automation.page.locator(f'li[data-itemid="{product_id}"]')
             
             await ride_selector.wait_for(state="visible", timeout=self.config.TIMEOUT)
             await ride_selector.click()
             self.logger.info(f"Successfully clicked on ride with product ID: {product_id}")
         except Exception as e:
-            self.logger.error(f"Failed to select ride with product ID '{product_id}': {e}")
+            self.logger.error(f"Failed to select ride with product ID '{product_id}': {e}", exc_info=True)
+            # Log all available product IDs on the page for debugging
+            all_item_ids = await self.automation.page.locator('li[data-itemid]').evaluate_all("elements => elements.map(el => el.getAttribute('data-itemid'))")
+            self.logger.error(f"Available data-itemid attributes on the page: {all_item_ids}")
+            # Take a screenshot for visual debugging
+            await self.automation.page.screenshot(path=f"uber_booking_failure_{product_id}.png")
             raise
 
     # async def click_request_ride_button(self):

@@ -56,7 +56,12 @@ class OlaAutomation:
         await self.steps.enter_destination_location(destination_location)
         await asyncio.sleep(5)
         await self.steps.click_search_cabs_button()
-        await asyncio.sleep(10)
+
+        # --- CRITICAL FIX: Wait for the first ride option to be visible ---
+        # Instead of a fixed sleep, we wait for the content to actually load.
+        self.logger.info("Waiting for ride options to load on the new page...")
+        first_ride_locator = self.page.locator("ola-cabs div.row.cab-row").first
+        await first_ride_locator.wait_for(state="visible", timeout=self.config.TIMEOUT)
 
         # On the booking page, check if login is needed.
         await self.steps.check_and_perform_login()
@@ -67,20 +72,18 @@ class OlaAutomation:
 
     async def book_ride(self, ride_details: Dict[str, Any]):
         """Selects a specific ride from the list and clicks the final book button."""
-        if not ride_details or 'name' not in ride_details:
-            raise ValueError("Invalid ride details provided for booking.")
+        if not ride_details or 'locator' not in ride_details:
+            raise ValueError("Invalid ride details provided for booking. The 'locator' is missing.")
 
         ride_name = ride_details['name']
         self._update_status("running", f"Selecting ride '{ride_name}' on the page.")
 
-        # Find the locator from the stored ride data
-        ride_to_book = next((ride for ride in self.ride_data if ride['name'] == ride_name), None)
-        if not ride_to_book or 'locator' not in ride_to_book:
-            raise Exception(f"Could not find the locator for ride '{ride_name}' to click.")
+        # The API now passes the full ride object, including the locator. We use it directly.
+        ride_to_book = ride_details
 
         await ride_to_book['locator'].click()
         self.logger.info(f"Successfully clicked the ride option for '{ride_name}'.")
-        await asyncio.sleep(20)
+        await asyncio.sleep(10)
 
         # # Click the final 'Confirm and Book' button
         # self.logger.info("Looking for the 'Confirm and Book' button.")
