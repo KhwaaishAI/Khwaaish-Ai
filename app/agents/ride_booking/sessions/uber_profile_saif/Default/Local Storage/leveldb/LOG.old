@@ -1,3 +1,6 @@
-2025/10/21-10:14:51.808 4ca9 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/MANIFEST-000001
-2025/10/21-10:14:51.837 4ca9 Recovering log #13
-2025/10/21-10:14:51.839 4ca9 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/000013.log 
+2025/10/25-10:45:45.806 6e3d Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/MANIFEST-000001
+2025/10/25-10:45:45.823 6e3d Recovering log #13
+2025/10/25-10:45:45.826 6e3d Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/000013.log 
+2025/10/25-10:46:45.836 6e41 Level-0 table #17: started
+2025/10/25-10:46:45.842 6e41 Level-0 table #17: 14102 bytes OK
+2025/10/25-10:46:45.855 6e41 Delete type=0 #13
