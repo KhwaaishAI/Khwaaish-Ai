@@ -1,5 +1,3 @@
-import asyncio
-from typing import Dict, Any, Callable
 from playwright.async_api import async_playwright
 from app.agents.flipkart.config import Config
 from app.agents.flipkart.llm.assistant import LLMAssistant
@@ -43,67 +41,6 @@ class FlipkartAutomation:
         except Exception as e:
             self.logger.error(f"❌ Browser initialization failed: {str(e)}")
             return False
-
-    async def execute_step_with_retry(self, step_func: Callable, step_name: str) -> Any:
-        """Execute step with retry mechanism and LLM fallback"""
-        for attempt in range(self.config.MAX_RETRIES):
-            try:
-                self.logger.info(f"🔄 {step_name} - Attempt {attempt + 1}")
-                result = await step_func()
-                self.logger.info(f"✅ {step_name} completed")
-                return result
-                
-            except Exception as e:
-                self.logger.warning(f"⚠️ {step_name} failed: {str(e)}")
-                
-                if attempt < self.config.MAX_RETRIES - 1:
-                    # Get DOM for LLM analysis
-                    dom_snapshot = await self._get_dom_snapshot()
-                    recovery_plan = await self.llm.analyze_failure(
-                        step_name, str(e), dom_snapshot
-                    )
-                    await self._execute_recovery_plan(recovery_plan)
-                    await asyncio.sleep(self.config.RETRY_DELAY)
-                else:
-                    self.logger.error(f"❌ {step_name} failed after {self.config.MAX_RETRIES} attempts")
-                    raise
-
-    async def _get_dom_snapshot(self) -> Dict[str, Any]:
-        """Get current DOM state"""
-        if not self.page:
-            return {}
-            
-        return await self.page.evaluate("""
-            () => ({
-                title: document.title,
-                url: window.location.href,
-                body: document.body.outerHTML
-            })
-        """)
-
-    async def _execute_recovery_plan(self, recovery_plan: Dict[str, Any]):
-        """Execute recovery actions"""
-        actions = recovery_plan.get('actions', [])
-        self.logger.info(f"Executing recovery plan with {len(actions)} actions")
-        
-        for action in actions:
-            action_type = action.get('type')
-            selector = action.get('selector', '')
-            
-            try:
-                if action_type == 'click' and selector:
-                    await self.page.click(selector)
-                elif action_type == 'wait' and selector:
-                    await self.page.wait_for_selector(selector, timeout=5000)
-                elif action_type == 'navigate':
-                    await self.page.goto(action.get('url', 'https://www.flipkart.com'))
-                elif action_type == 'reload':
-                    await self.page.reload()
-                elif action_type == 'wait':
-                    await asyncio.sleep(2)
-                    
-            except Exception as e:
-                self.logger.warning(f"Recovery action failed: {str(e)}")
 
     async def close(self):
         """Cleanup resources"""

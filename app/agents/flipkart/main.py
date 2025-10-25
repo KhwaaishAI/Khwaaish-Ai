@@ -27,29 +27,28 @@ class SmartProductAutomation:
         await self.steps.step_0_generate_search_url()
 
         # 2️⃣ Launch search URL
-        num = await self.steps.step_1_launch_search_url()
+        if await self.steps.step_1_launch_search_url():
 
-        # 3️⃣ Select exact product
-        while num:
-            await self.steps.step_2_select_exact_product()
+            # 4️⃣ Handle options (size, color, storage)
+            await self.steps.step_3_handle_product_options()
 
-        # 4️⃣ Handle options (size, color, storage)
-        await self.steps.step_3_handle_product_options()
+            # 5️⃣ Add to cart first (without login)
+            await self.steps.step_4_add_to_cart_without_login()
 
-        # 5️⃣ Add to cart first (without login)
-        await self.steps.step_4_add_to_cart_without_login()
+            # 6️⃣ Click Place Order, then login if redirected
+            await self.steps.step_6_proceed_to_shipping()
+            # await self.steps.step_5_handle_login_at_checkout()  # Login happens only after Place Order
 
-        # 6️⃣ Click Place Order, then login if redirected
-        await self.steps.step_6_proceed_to_shipping()
-        # await self.steps.step_5_handle_login_at_checkout()  # Login happens only after Place Order
+            # 7️⃣ Fill shipping information
+            await self.steps.step_7_fill_shipping_info()
 
-        # 7️⃣ Fill shipping information
-        await self.steps.step_7_fill_shipping_info()
+            # 8️⃣ Proceed to payment (stop for manual completion)
+            await self.steps.step_8_proceed_to_payment()
 
-        # 8️⃣ Proceed to payment (stop for manual completion)
-        await self.steps.step_8_proceed_to_payment()
-
-        self.logger.info("✅ Direct cart workflow completed!")
+            self.logger.info("✅ Direct cart workflow completed!")
+        else:
+            self.logger.info("Search for another item !!!!!")
+            return 
 
 
 # Product configs

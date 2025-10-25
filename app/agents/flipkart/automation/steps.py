@@ -242,122 +242,6 @@ class FlipkartSteps:
 
         self.logger.info("✅ Login successful, session saved.")
 
-    async def _login_with_email(self):
-        """Login using email"""
-        email = input("Enter your email: ").strip()
-        
-        # Click login button
-        login_selectors = [
-            "text=Login",
-            "button:has-text('Login')",
-            "a[href*='login']"
-        ]
-        
-        for selector in login_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.click(selector)
-                    break
-            except:
-                continue
-        
-        # Wait for login modal
-        await asyncio.sleep(2)
-        
-        # Switch to email login if needed
-        email_switch_selectors = [
-            "text=Use Email ID",
-            "text=Email",
-            "button:has-text('Email')"
-        ]
-        
-        for selector in email_switch_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=3000):
-                    await self.page.click(selector)
-                    await asyncio.sleep(1)
-                    break
-            except:
-                continue
-        
-        # Enter email
-        email_selectors = [
-            "input[type='email']",
-            "input[name*='email']",
-            "input[placeholder*='Email']"
-        ]
-        
-        for selector in email_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.fill(selector, email)
-                    self.logger.info("✅ Email entered")
-                    break
-            except:
-                continue
-        
-        # Click continue
-        continue_selectors = [
-            "button:has-text('Continue')",
-            "text=CONTINUE"
-        ]
-        
-        for selector in continue_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.click(selector)
-                    break
-            except:
-                continue
-        
-        # Wait for password input
-        await asyncio.sleep(3)
-        
-        # Ask user for password
-        password = input("Enter your password: ").strip()
-        
-        # Enter password
-        password_selectors = [
-            "input[type='password']",
-            "input[name*='password']",
-            "input[placeholder*='Password']"
-        ]
-        
-        for selector in password_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.fill(selector, password)
-                    self.logger.info("✅ Password entered")
-                    break
-            except:
-                continue
-        
-        # Click login
-        login_selectors = [
-            "button:has-text('Login')",
-            "text=LOGIN"
-        ]
-        
-        for selector in login_selectors:
-            try:
-                if await self.page.is_visible(selector, timeout=5000):
-                    await self.page.click(selector)
-                    break
-            except:
-                continue
-        
-        # Wait for login to complete
-        await self.page.wait_for_load_state('networkidle')
-        await asyncio.sleep(3)
-        
-        # Save login session
-        self.user_data['logged_in'] = True
-        self.user_data['login_method'] = 'email'
-        self.user_data['login_timestamp'] = time.time()  # Add timestamp
-        self._save_user_session()
-        
-        self.logger.info("✅ Login successful - session saved")
-
     async def step_0_generate_search_url(self):
         """Step 0: Use LLM to generate precise search URL"""
         if not self.current_product:
@@ -386,7 +270,8 @@ class FlipkartSteps:
         try:
             product_list = await extracter.search(self.search_url)
             if not product_list:
-                return False
+                self.logger.warning("❌Product Not available")
+                return False 
         except Exception as e:
             self.logger.warning(f"Product info extraction encountered an error: {e}")
             return False
@@ -410,14 +295,15 @@ class FlipkartSteps:
             # Navigate to the selected product page
             await self.page.goto(self.search_url, wait_until="networkidle")
             self.logger.info("✅ Selected product page loaded successfully")
+            return True
         else:
-            self.logger.info("ℹ️  No product selected, continuing with search results page")
+            self.logger.info("ℹ️  Product Not available")
 
     async def display_products_and_get_selection(self, product_list):
         """Display products to user and return selected product URL"""
         
         if not product_list:
-            print("❌ No product information available. Please select manually from the search results.")
+            ("❌ No product information available. Please select manually from the search results.")
             return None
         
         print("\n" + "="*80)
@@ -508,144 +394,144 @@ class FlipkartSteps:
                 print(f"❌ Error: {e}")
                 return None
                 
-    async def step_2_select_exact_product(self):
-        """Step 2: Select the exact matching product from search results"""
-        self.logger.info("🎯 Selecting exact product match...")
+    # async def step_2_select_exact_product(self):
+    #     """Step 2: Select the exact matching product from search results"""
+    #     self.logger.info("🎯 Selecting exact product match...")
         
-        product_name = self.current_product.get('name', '').lower()
-        product_specs = self.current_product.get('specifications', {})
+    #     product_name = self.current_product.get('name', '').lower()
+    #     product_specs = self.current_product.get('specifications', {})
         
-        # Wait for search results
-        await self._wait_for_search_results()
+    #     # Wait for search results
+    #     await self._wait_for_search_results()
         
-        # Get all product elements
-        product_selectors = [
-            "[data-tkid]",
-            "._1fQZEK", 
-            "a[href*='/p/']",
-            ".s1Q9rs"  # Product title
-        ]
+    #     # Get all product elements
+    #     product_selectors = [
+    #         "[data-tkid]",
+    #         "._1fQZEK", 
+    #         "a[href*='/p/']",
+    #         ".s1Q9rs"  # Product title
+    #     ]
         
-        exact_matches = []
-        partial_matches = []
+    #     exact_matches = []
+    #     partial_matches = []
         
-        for selector in product_selectors:
-            try:
-                elements = await self.page.query_selector_all(selector)
-                for element in elements:
-                    try:
-                        # Get product text for matching
-                        element_text = await element.text_content()
-                        if not element_text:
-                            continue
+    #     for selector in product_selectors:
+    #         try:
+    #             elements = await self.page.query_selector_all(selector)
+    #             for element in elements:
+    #                 try:
+    #                     # Get product text for matching
+    #                     element_text = await element.text_content()
+    #                     if not element_text:
+    #                         continue
                             
-                        element_text_lower = element_text.lower()
+    #                     element_text_lower = element_text.lower()
                         
-                        # Check for exact name match
-                        name_match_score = self._calculate_name_match(product_name, element_text_lower)
+    #                     # Check for exact name match
+    #                     name_match_score = self._calculate_name_match(product_name, element_text_lower)
                         
-                        # Check specification matches
-                        spec_match_score = self._calculate_spec_match(product_specs, element_text_lower)
+    #                     # Check specification matches
+    #                     spec_match_score = self._calculate_spec_match(product_specs, element_text_lower)
                         
-                        total_score = name_match_score + spec_match_score
+    #                     total_score = name_match_score + spec_match_score
                         
-                        if total_score >= 8:  # High confidence match
-                            exact_matches.append((element, total_score, element_text))
-                        elif total_score >= 5:  # Partial match
-                            partial_matches.append((element, total_score, element_text))
+    #                     if total_score >= 8:  # High confidence match
+    #                         exact_matches.append((element, total_score, element_text))
+    #                     elif total_score >= 5:  # Partial match
+    #                         partial_matches.append((element, total_score, element_text))
                             
-                    except Exception as e:
-                        continue
+    #                 except Exception as e:
+    #                     continue
                         
-            except Exception as e:
-                continue
+    #         except Exception as e:
+    #             continue
         
-        # Sort by match score
-        exact_matches.sort(key=lambda x: x[1], reverse=True)
-        partial_matches.sort(key=lambda x: x[1], reverse=True)
+    #     # Sort by match score
+    #     exact_matches.sort(key=lambda x: x[1], reverse=True)
+    #     partial_matches.sort(key=lambda x: x[1], reverse=True)
         
-        # Try exact matches first
-        target_element = None
-        if exact_matches:
-            target_element = exact_matches[0][0]
-            self.logger.info(f"✅ Found exact match: {exact_matches[0][2]}")
-        elif partial_matches:
-            target_element = partial_matches[0][0]
-            self.logger.info(f"🔄 Using partial match: {partial_matches[0][2]}")
-        else:
-            # Fallback to first available product
-            self.logger.warning("⚠️ No good matches found, using first available product")
-            for selector in product_selectors:
-                try:
-                    elements = await self.page.query_selector_all(selector)
-                    if elements:
-                        target_element = elements[0]
-                        break
-                except:
-                    continue
+    #     # Try exact matches first
+    #     target_element = None
+    #     if exact_matches:
+    #         target_element = exact_matches[0][0]
+    #         self.logger.info(f"✅ Found exact match: {exact_matches[0][2]}")
+    #     elif partial_matches:
+    #         target_element = partial_matches[0][0]
+    #         self.logger.info(f"🔄 Using partial match: {partial_matches[0][2]}")
+    #     else:
+    #         # Fallback to first available product
+    #         self.logger.warning("⚠️ No good matches found, using first available product")
+    #         for selector in product_selectors:
+    #             try:
+    #                 elements = await self.page.query_selector_all(selector)
+    #                 if elements:
+    #                     target_element = elements[0]
+    #                     break
+    #             except:
+    #                 continue
         
-        if not target_element:
-            raise Exception("No products found in search results")
+    #     if not target_element:
+    #         raise Exception("No products found in search results")
         
-        # Get current page context for new tab handling
-        current_page = self.page
-        context = self.automation.context
+    #     # Get current page context for new tab handling
+    #     current_page = self.page
+    #     context = self.automation.context
         
-        # Set up listener for new pages
-        new_page_promise = asyncio.create_task(self._wait_for_new_page(context))
+    #     # Set up listener for new pages
+    #     new_page_promise = asyncio.create_task(self._wait_for_new_page(context))
         
-        # Click the selected product
-        await target_element.scroll_into_view_if_needed()
-        await asyncio.sleep(1)
-        await target_element.click()
-        self.logger.info("✅ Product clicked, waiting for new tab...")
+    #     # Click the selected product
+    #     await target_element.scroll_into_view_if_needed()
+    #     await asyncio.sleep(1)
+    #     await target_element.click()
+    #     self.logger.info("✅ Product clicked, waiting for new tab...")
         
-        # Handle new tab
-        try:
-            new_page = await asyncio.wait_for(new_page_promise, timeout=10000)
-            self.logger.info("🔄 New tab detected, switching to it...")
+    #     # Handle new tab
+    #     try:
+    #         new_page = await asyncio.wait_for(new_page_promise, timeout=10000)
+    #         self.logger.info("🔄 New tab detected, switching to it...")
             
-            await current_page.close()
-            self.page = new_page
-            self.automation.page = new_page
+    #         await current_page.close()
+    #         self.page = new_page
+    #         self.automation.page = new_page
             
-            await new_page.wait_for_load_state('networkidle')
-            self.logger.info("✅ Successfully switched to product page")
+    #         await new_page.wait_for_load_state('networkidle')
+    #         self.logger.info("✅ Successfully switched to product page")
             
-        except asyncio.TimeoutError:
-            self.logger.info("ℹ️ No new tab opened, continuing in current page")
-            await self.page.wait_for_load_state('networkidle')
+    #     except asyncio.TimeoutError:
+    #         self.logger.info("ℹ️ No new tab opened, continuing in current page")
+    #         await self.page.wait_for_load_state('networkidle')
         
-        # Wait for product page to load completely
-        await self._wait_for_product_page_ready()
-        await self._scroll_page_for_elements()
+    #     # Wait for product page to load completely
+    #     await self._wait_for_product_page_ready()
+    #     await self._scroll_page_for_elements()
         
-        self.logger.info(f"📍 Current URL: {self.page.url}")
+    #     self.logger.info(f"📍 Current URL: {self.page.url}")
 
-    def _calculate_name_match(self, target_name: str, element_text: str) -> int:
-        """Calculate how well the element text matches the target product name"""
-        score = 0
+    # def _calculate_name_match(self, target_name: str, element_text: str) -> int:
+    #     """Calculate how well the element text matches the target product name"""
+    #     score = 0
         
-        # Split into words for matching
-        target_words = set(target_name.lower().split())
-        element_words = set(element_text.lower().split())
+    #     # Split into words for matching
+    #     target_words = set(target_name.lower().split())
+    #     element_words = set(element_text.lower().split())
         
-        # Exact match bonus
-        if target_name in element_text:
-            score += 5
+    #     # Exact match bonus
+    #     if target_name in element_text:
+    #         score += 5
         
-        # Word overlap
-        common_words = target_words.intersection(element_words)
-        if common_words:
-            score += len(common_words) * 2
+    #     # Word overlap
+    #     common_words = target_words.intersection(element_words)
+    #     if common_words:
+    #         score += len(common_words) * 2
         
-        # Brand/model specific matching
-        if any(word in element_text for word in ['samsung', 'galaxy', 'iphone', 'oneplus', 'xiaomi', 'realme']):
-            score += 1
+    #     # Brand/model specific matching
+    #     if any(word in element_text for word in ['samsung', 'galaxy', 'iphone', 'oneplus', 'xiaomi', 'realme']):
+    #         score += 1
             
-        return min(score, 5)  # Cap at 5
+    #     return min(score, 5)  # Cap at 5
 
-    def _calculate_spec_match(self, specs: Dict, element_text: str) -> int:
+    # def _calculate_spec_match(self, specs: Dict, element_text: str) -> int:
         """Calculate how well specifications match"""
         score = 0
         element_text_lower = element_text.lower()
@@ -683,6 +569,7 @@ class FlipkartSteps:
         container_selector = "#container > div > div._39kFie.N3De93.JxFEK3._48O0EI > div.DOjaWF.YJG4Cf > div.DOjaWF.gdgoEp.col-8-12"
         try:
             container = await self.page.query_selector(container_selector)
+            await asyncio(2)
             if not container:
                 self.logger.warning("⚠️ Options container not found, skipping option selection")
                 return
@@ -700,7 +587,7 @@ class FlipkartSteps:
                         btn_text = btn_text.strip().lower()
                         if self.llm_selection(key, desired_value, btn_text):
                             await btn.click()
-                            await asyncio.sleep(1)  # wait for selection to register
+                            await asyncio.sleep(2)  # wait for selection to register
                             self.logger.info(f"✅ Selected {key}: {btn_text}")
                             selected = True
                             break
@@ -714,7 +601,7 @@ class FlipkartSteps:
                         first_option = await section.query_selector("button, li, div")
                         if first_option:
                             await first_option.click()
-                            await asyncio.sleep(1)
+                            await asyncio.sleep(2)
                             self.logger.info(f"⚡ Defaulted {key} to first available option")
                             break
 
@@ -742,6 +629,7 @@ class FlipkartSteps:
             
             # fallback: simple substring match
             return desired_value in available_value
+
     async def _check_delivery_availability(self) -> bool:
         """Check if product is available for delivery using pincode from session.json"""
         import os, json, asyncio
@@ -793,6 +681,7 @@ class FlipkartSteps:
                 try:
                     if await self.page.is_visible(selector, timeout=3000):
                         await self.page.click(selector)
+                        await asyncio.sleep(3)
                         await self.page.fill(selector, pincode)
                         input_filled = True
                         self.logger.info(f"✅ Entered pincode in: {selector}")
@@ -817,6 +706,7 @@ class FlipkartSteps:
             for selector in check_button_selectors:
                 try:
                     if await self.page.is_visible(selector, timeout=5000):
+                        await asyncio.sleep(3)
                         await self.page.click(selector)
                         button_clicked = True
                         self.logger.info(f"✅ Clicked Check Delivery button: {selector}")
@@ -878,7 +768,7 @@ class FlipkartSteps:
 
         await asyncio.sleep(2)
         await self.page.wait_for_load_state('networkidle')
-        # await self._scroll_page_for_elements()
+        await self._scroll_page_for_elements()
 
         # Try Add to Cart
         cart_selectors = self.enhanced_selectors["add_to_cart"]
@@ -963,7 +853,8 @@ class FlipkartSteps:
 
         # Ensure we're on cart/checkout page
         current_url = self.page.url.lower()
-        if 'cart' not in current_url and 'checkout' not in current_url:
+        if 'cart' not in current_url or 'checkout' not in current_url:
+            self.logger.info("cart not in url going to _go_to_cart() function")
             await self._go_to_cart()
 
         # Click Place Order button
@@ -971,17 +862,25 @@ class FlipkartSteps:
         clicked = False
         for selector in place_order_selectors:
             try:
+                self.logger(f"Going to try {selector}")
                 if await self.page.is_visible(selector, timeout=10000):
                     await self.page.click(selector)
+                    await asyncio(2)
                     self.logger.info(f"✅ Clicked Place Order: {selector}")
                     await self.page.wait_for_load_state('networkidle')
                     clicked = True
                     break
             except:
+                clicked = True
                 continue
 
         if not clicked:
-            raise Exception("❌ Could not click Place Order")
+            self.logger.error("❌ Could not click Place Order. Please click it manually in the browser window to continue. The browser will remain open for inspection.")
+            print("❌ Could not click Place Order automatically. Please click the button manually in your browser to continue. The browser will remain open.")
+            while True:
+                user_input = input("Press Enter after clicking the Place Order button manually, or type 'skip' to continue without it: ").strip().lower()
+                if user_input == "" or user_input == "skip":
+                    break
 
         # Wait a short moment for redirect
         await asyncio.sleep(2)
@@ -993,7 +892,6 @@ class FlipkartSteps:
             await self._login_with_phone()
         else:
             self.logger.info("✅ Already logged in or no login required")
-
 
     async def step_7_fill_shipping_info(self):
         """Step 7: Fill shipping information, choose from saved addresses or enter new"""
