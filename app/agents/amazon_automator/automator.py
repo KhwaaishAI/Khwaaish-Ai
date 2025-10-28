@@ -7,7 +7,7 @@ from typing import Optional, Dict, List, Any
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from amazon_automator.Amazon_tools.search import AmazonScraper
+from app.tools.Amazon_tools.search import AmazonScraper
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, expect
 
 logger = logging.getLogger(__name__)
@@ -39,11 +39,12 @@ class AmazonAutomator:
             '[data-feature-name="add-to-cart"]',
         ],
         'proceed_checkout': [
-            'input[name="ProceedToBuy"]',
             'input[name="proceedToRetail"]',
-            'a:has-text("Proceed to Checkout")',
+            'input[name="proceedToCheckout"]',
+            '#sc-buy-box-ptc-button input',
+            'input#sc-buy-box-ptc-button',
             'button:has-text("Proceed to Checkout")',
-            '[data-feature-name="proceed-to-checkout"]',
+            'a:has-text("Proceed to Checkout")',
         ],
         'login_email': [
             '#ap_email',
@@ -55,10 +56,23 @@ class AmazonAutomator:
             'input[name="password"]',
             'input[type="password"]',
         ],
-        'login_submit': [
-            '#signInSubmit',
-            'button:has-text("Sign in")',
+      'login_submit': [
+            '#continue',                      
+            '#signInSubmit',                  
+            'input#signInSubmit',            
+            'input#continue',                
+            'button:has-text("Sign in")',    
+            'input[type="submit"][aria-labelledby*="continue"]',
         ],
+
+        'password_submit': [
+            '#signInSubmit',                      
+            'input#signInSubmit',                 
+            'button#signInSubmit',               
+            'button:has-text("Sign in")',        
+            'input[type="submit"][aria-labelledby*="signInSubmit"]',
+        ],
+   
         'otp_input': [
             '#auth-mfa-otpcode',
             'input[name="mfaCode"]',
@@ -351,7 +365,7 @@ class AmazonAutomator:
         Please solve the CAPTCHA manually in the browser window.
         Once solved, press ENTER here to resume automation.
         """
-        await self._print_interactive(message, require_confirm=True)
+        await self._print_interactive(message, require_confirm=False)
         
         logger.info("User solved CAPTCHA; resuming...")
         await asyncio.sleep(2)
@@ -683,7 +697,7 @@ class AmazonAutomator:
             
             # Submit login
             submit_locator = await self.find_element_safely(
-                self.SELECTORS['login_submit'],
+                self.SELECTORS['password_submit'],
                 timeout=3000
             )
             if submit_locator:
@@ -753,16 +767,26 @@ class AmazonAutomator:
         except Exception as e:
             logger.debug(f"Login check failed: {e}")
         
-        # Wait for payment page indicators
+        payment_selectors = [
+            '[data-feature-name="payment"]',
+            '#ppd',                                   # "Payment Page Details" container
+            'div.pmts-page-container',                # Payments module
+            'form[name="payment-form"]',              # Payment form wrapper
+            'h1:has-text("Select a payment method")', # Visible heading
+            'h1:has-text("Payment method")',          # Variant heading
+        ]
+
         try:
             await asyncio.wait_for(
-                self.page.wait_for_selector('[data-feature-name="payment"]'),
+                asyncio.gather(
+                    *[self.page.wait_for_selector(sel, timeout=10) for sel in payment_selectors]
+                ),
                 timeout=10
             )
             logger.info("Reached payment page")
             return True
         except asyncio.TimeoutError:
-            logger.info("Payment page indicators not found (may still be valid checkout state)")
+            logger.warning("Payment page indicators not found — may still be a valid checkout state")
             return True
     
     async def display_checkout_summary(self):
@@ -817,112 +841,4 @@ class AmazonAutomator:
                 """
         await self._print_interactive(message, require_confirm=False)
 
-
-class AmazonAutomationFlow:
-    """High-level workflow orchestrator."""
-    
-    def __init__(self, automator: AmazonAutomator):
-        self.automator = automator
-    
-    async def run_full_flow(
-        self,
-        search_query: str,
-        product_index: int = 1,
-        specifications: Optional[Dict[str, str]] = None,
-        ):
-        """
-        Execute full search -> select -> specs -> cart -> checkout flow.
-        
-        Args:
-            search_query: What to search for
-            product_index: 1-based index from results
-            specifications: Dict like {'Color': 'Black', 'Storage': '256GB'}
-        """
-        try:
-            await self.automator.initialize_browser()
-            await self.automator.page.goto("https://www.amazon.in")
-            
-            # Search
-            print("\n🔍 STEP 1: SEARCHING...")
-            await self.automator.page.goto(f"https://www.amazon.in/s?k={search_query}")
-            products = await self.automator.go_to_search(search_query)
-            
-            if not products:
-                logger.error("No products found")
-                return
-            
-            # Display and select
-            print("\n📋 STEP 2: DISPLAYING RESULTS...")
-            self.automator.display_products(products)
-            
-            if product_index == 0:
-                product_index = int(input("Select product number: "))
-            
-            selected_product = self.automator.select_product(product_index)
-            
-            # Open product page
-            print("\n🌐 STEP 3: OPENING PRODUCT PAGE...")
-            await self.automator.open_product_page(selected_product['asin'])
-            
-            # Find and choose specs
-            print("\n⚙️  STEP 4: SPECIFICATIONS...")
-            available_specs = await self.automator.find_specifications()
-            
-            if available_specs:
-                print(f"Available specifications: {list(available_specs.keys())}")
-                
-                if not specifications:
-                    specifications = {}
-                    for spec_name, options in available_specs.items():
-                        print(f"\n{spec_name} options: {options}")
-                        choice = input(f"Choose {spec_name} (or press Enter to skip): ").strip()
-                        if choice:
-                            specifications[spec_name] = choice
-                
-                if specifications:
-                    await self.automator.choose_specifications(specifications)
-            
-            # Add to cart
-            print("\n🛒 STEP 5: ADDING TO CART...")
-            if await self.automator.add_to_cart():
-                print("✅ Item added to cart")
-            else:
-                logger.error("Failed to add to cart")
-                return
-            
-            # Proceed to checkout
-            print("\n💳 STEP 6: PROCEEDING TO CHECKOUT...")
-            if await self.automator.proceed_to_checkout():
-                print("✅ Proceeding to checkout")
-            else:
-                logger.error("Failed to proceed to checkout")
-                return
-            
-            # Reach payment page
-            print("\n💰 STEP 7: REACHING PAYMENT PAGE...")
-            if await self.automator.reach_payment_page():
-                print("✅ Reached payment page")
-            else:
-                logger.error("Failed to reach payment page")
-                return
-            
-            # Display summary and stop
-            print("\n📝 STEP 8: ORDER SUMMARY...")
-            await self.automator.display_checkout_summary()
-            
-            print("\n" + "="*70)
-            print("🎉 AUTOMATION COMPLETE")
-            print("="*70)
-            print("\nNext steps:")
-            print("  1. Review the order summary in the browser")
-            print("  2. Verify delivery address and payment method")
-            print("  3. Click 'Place Order' to complete your purchase")
-            print("\nSession saved. You can run again to reuse login.")
-        
-        except Exception as e:
-            logger.error(f"Flow error: {e}", exc_info=True)
-            print(f"\n❌ Error: {e}")
-        
-        finally:
-            await self.automator.close_browser()
 

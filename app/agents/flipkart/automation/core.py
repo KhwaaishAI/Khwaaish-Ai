@@ -1,14 +1,11 @@
 from playwright.async_api import async_playwright
 from app.agents.flipkart.config import Config
-from app.agents.flipkart.llm.assistant import LLMAssistant
 from app.agents.flipkart.utills.logger import setup_logger
 
 class FlipkartAutomation:
     def __init__(self):
         self.config = Config()
-        self.llm = LLMAssistant(self.config)
         self.logger = setup_logger()
-        self.llm.set_logger(self.logger)
         
         self.playwright = None
         self.browser = None
