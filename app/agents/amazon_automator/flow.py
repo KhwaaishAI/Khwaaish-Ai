@@ -1,18 +1,11 @@
-from dataclasses import dataclass
 import logging
-from amazon_automator.automator import AmazonAutomator
-from typing import Optional
+from app.tools.Amazon_tools.search import AmazonScraper
+from app.agents.amazon_automator.automator import AmazonAutomator
+from typing import Optional,Dict
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ProductSelection:
-    """Represents user's product selection."""
-    asin: str
-    title: str
-    url: str
-    specifications: Dict[str, str]
 
 class AmazonAutomationFlow:
     """High-level workflow orchestrator."""
@@ -134,3 +127,12 @@ class AmazonAutomationFlow:
         finally:
             await self.automator.close_browser()
 
+if __name__ == "__main__":
+    import asyncio
+    # Directly run the automation flow with example parameters
+    async def main():
+        automator = AmazonAutomator()
+        flow = AmazonAutomationFlow(automator)
+        await flow.run_full_flow("Samsung S23 Ultra", 0)
+
+    asyncio.run(main())

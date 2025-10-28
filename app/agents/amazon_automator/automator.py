@@ -90,7 +90,7 @@ class AmazonAutomator:
     
     def __init__(
         self,
-        scraper: 'AmazonScraper' = None,
+        scraper: Optional['AmazonScraper'] = None,
         headful: bool = False,
         session_store_path: Optional[str] = None,
         proxy: Optional[str] = None,
@@ -98,7 +98,7 @@ class AmazonAutomator:
         throttle: float = 2.0,
         dry_run: bool = False,
         timeout: int = 30000,
-    ):
+        ):
         """
         Initialize Amazon Automator.
         
@@ -112,7 +112,7 @@ class AmazonAutomator:
             dry_run: Simulate actions without clicking/changing state
             timeout: Default timeout for page operations (ms)
         """
-        self.scraper = scraper
+        self.scraper = AmazonScraper()
         self.headful = headful
         self.session_store_path = session_store_path or ".amazon_session.json"
         self.proxy = proxy
@@ -221,7 +221,7 @@ class AmazonAutomator:
         selectors: List[str],
         page: Optional[Page] = None,
         timeout: Optional[int] = None,
-    ) -> Optional[Any]:
+        ) -> Optional[Any]:
         """
         Try multiple selectors and return first matching locator.
         
@@ -281,7 +281,7 @@ class AmazonAutomator:
         dry_run: Optional[bool] = None,
         mask_value: bool = False,
         delay: bool = True
-    ):
+        ):
         """
         Safely fill input with optional masking for sensitive data.
         
@@ -311,7 +311,7 @@ class AmazonAutomator:
     async def wait_for_navigation_or_modal(
         self,
         timeout: int = 10000,
-    ) -> bool:
+        ) -> bool:
         """
         Wait for navigation or modal (like CAPTCHA) to appear.
         
@@ -669,7 +669,14 @@ class AmazonAutomator:
         
         # Click continue/next
         continue_locator = await self.find_element_safely(
-            ['button[type="submit"]', 'button:has-text("Continue")'],
+            [
+                '#continue',                      
+                '#signInSubmit',                  
+                'input#signInSubmit',             #// fallback for input type button
+                'input#continue',                 #// fallback for input type button
+                'button:has-text("Sign in")',     #// generic text-based selector
+                'input[type="submit"][aria-labelledby*="continue"]', #// accessibility-based selector
+            ],
             timeout=3000
         )
         if continue_locator:
@@ -777,12 +784,19 @@ class AmazonAutomator:
         ]
 
         try:
-            await asyncio.wait_for(
-                asyncio.gather(
-                    *[self.page.wait_for_selector(sel, timeout=10) for sel in payment_selectors]
-                ),
-                timeout=10
-            )
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *[self.page.wait_for_selector(sel, timeout=10) for sel in payment_selectors]
+                    ),
+                    timeout=10
+                )
+            except asyncio.TimeoutError:
+                print("\n⚠️  Unable to automatically detect the payment page.")
+                print("Please take manual control of the browser to proceed with payment.")
+                print("Note: The automation does NOT have access to complete payment flows for your security.")
+                input("After you reach the payment page manually, press Enter to continue...")
+                return True
             logger.info("Reached payment page")
             return True
         except asyncio.TimeoutError:
