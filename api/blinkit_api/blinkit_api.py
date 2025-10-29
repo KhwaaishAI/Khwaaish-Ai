@@ -17,7 +17,7 @@ class OrderRequest(BaseModel):
     location: str
     mobile_number: str
 
-@app.post("/blinkit")
+@app.post("/order")
 async def create_order(request: OrderRequest):
     shopping_list = analyze_query(request.query)
     if shopping_list:
