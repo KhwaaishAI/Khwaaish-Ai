@@ -1,22 +1,11 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
 from app.agents.swiggy.swiggy_automation import run_agent
 import asyncio
 
 app = FastAPI()
 
-class OrderRequest(BaseModel):
-    item: str
-    restaurant: str
-    location: str
-    phone_number: str
-
-@app.post("/order")
-async def create_order(order: OrderRequest):
-    result = await run_agent(
-        item=order.item,
-        restaurant=order.restaurant,
-        location=order.location,
-        phone_number=order.phone_number
-    )
-    return {"message": result}
+@app.post("/swiggy")
+async def swiggy_endpoint(query: str, location: str, phone_number: str):
+    loop = asyncio.get_event_loop()
+    result = await loop.create_task(run_agent(query, location, phone_number))
+    return {"status": "success", "result": result}
