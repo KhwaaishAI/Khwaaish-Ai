@@ -75,21 +75,21 @@ class FlipkartSteps:
                 continue
         return False
 
-    async def _login_with_phone(self,phone:Optional):
+    async def _login_with_phone(self,phone:Optional[int],use_session:bool):
         """Optimized phone login"""
-        session_file = "user_shipping_session.json"
-        phone = None
+        if use_session:
+            session_file = "user_shipping_session.json"
+            phone = None
 
-        try:
-            if os.path.exists(session_file):
-                with open(session_file, 'r') as f:
-                    phone = json.load(f).get('mobile', '').strip()
-        except:
-            pass
+            try:
+                if os.path.exists(session_file):
+                    with open(session_file, 'r') as f:
+                        phone = json.load(f).get('mobile', '').strip()
+            except:
+                pass
 
-        phone = phone or input("📱 Enter phone number: ").strip()
         if not phone:
-            return False
+            phone = phone or input("📱 Enter phone number: ").strip()
 
         self.logger.info("🔐 Starting phone login...")
 
@@ -345,6 +345,11 @@ class FlipkartSteps:
         
         if 'cart' not in self.page.url.lower():
             await self._go_to_cart()
+        
+        if 'login' in self.page.url.lower() or await self._check_login_required():
+            self.logger.info("🔐 Login required")
+            use_session = os.path.exists("user_shipping_session.json")
+            await self._login_with_phone(use_session=use_session)
 
         if not await self._find_element(self.selectors["place_order"], click=True):
             self.logger.error("❌ Could not click Place Order")
@@ -354,7 +359,8 @@ class FlipkartSteps:
         
         if 'login' in self.page.url.lower() or await self._check_login_required():
             self.logger.info("🔐 Login required")
-            await self._login_with_phone()
+            use_session = os.path.exists("user_shipping_session.json")
+            await self._login_with_phone(use_session=use_session)
         else:
             self.logger.info("✅ Already logged in")
 

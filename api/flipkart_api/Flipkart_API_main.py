@@ -14,7 +14,6 @@ app = FastAPI(title="Flipkart Automation API")
 # ---- Data Models ----
 class LoginRequest(BaseModel):
     phone: str
-    otp: Optional[str] = None
 
 class ShippingInfo(BaseModel):
     name: str
@@ -51,11 +50,11 @@ def load_shipping(use_saved=True, override=None) -> Dict[str, Any]:
 
 
 # ---- Endpoints ----
-@app.on_event("startup")
-async def startup():
-    global automation
-    automation = FlipkartAutomation()
-    await automation.initialize_browser()
+# @app.on_event("startup")
+# async def startup():
+#     global automation
+#     automation = FlipkartAutomation()
+#     await automation.initialize_browser()
 
 
 @app.post("/login")
@@ -66,9 +65,8 @@ async def login(req: LoginRequest):
         return {"error": "Automation not initialized."}
     try:
         steps = FlipkartSteps(automation)
-        await steps._login_with_phone(req.phone)
-        otp = req.otp or input("Enter OTP sent to your phone: ")
-        await steps.step_login_verify_otp(otp)
+        await steps._login_with_phone()
+
         return {"status": "✅ Logged in successfully"}
     except Exception as e:
         return {"error": str(e)}
