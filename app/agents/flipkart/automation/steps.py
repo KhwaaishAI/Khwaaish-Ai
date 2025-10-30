@@ -7,6 +7,7 @@ from app.tools.flipkart_tools.search import FlipkartCrawler, Product
 from app.agents.flipkart.automation.core import FlipkartAutomation
 import time
 
+
 class FlipkartSteps:
     def __init__(self, automation: FlipkartAutomation):
         self.automation = automation
@@ -19,6 +20,7 @@ class FlipkartSteps:
         self.user_session_file = "user_session.json"
         self.user_data = self._load_user_session()
         
+        
         self.selectors = {
             "size": ["button:has-text('10')", "text='10'", "._3V2wfe._1fGeJ5._2UyeeK", "[data-qa*='size']"],
             "color": ["button:has-text('Black')", "text='Black'", "[data-qa*='color']"],
@@ -27,7 +29,7 @@ class FlipkartSteps:
             "cart_icon": ["._3SkBxJ", "[href*='viewcart']", "a[href*='cart']"],
             "place_order": ["text=Place Order", "button:has-text('Place Order')"],
             "login": ["button:has-text('Login')", "text=Login"],
-            "phone_input": ["input[autocomplete='off']", "input.r4vIwl.Jr-g+f", "input[type='tel']"],
+            "phone_input":["input[autocomplete='off']","input.r4vIwl.Jr-g+f","input[type='tel']","#container > div > div.VCR99n > div > div.Sm1-5F.col.col-3-5 > div > form > div.I-qZ4M.vLRlQb > input"],
             "continue_btn": ["button._2KpZ6l._2HKlqd", "button[type='submit']", "button:has-text('Continue')"],
             "otp_input": ["input.r4vIwl.zgwPDa.Jr-g+f", "input[type='text'][maxlength='6']", "input[placeholder*='OTP']"],
             "pincode_input": ["#pincodeInputId", "input[placeholder*='Pincode']", "._2JC05C"],
@@ -163,7 +165,6 @@ class FlipkartSteps:
             self.logger.info("✅ Product selected")
             return True
         return False
-
 
     async def _display_and_select_products(self, products: List["Product"]) -> Optional[str]:
         """Display Product objects (Flipkart results) and get user's selection."""
