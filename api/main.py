@@ -5,7 +5,7 @@ from api.ride_booking_api import api
 # -------------------------------------------------
 # Initialize app once
 # -------------------------------------------------
-app = FastAPI(title="AI-Media-Generation-API")
+app = FastAPI(title="Khwaaish-api")
 
 origins = [
     "http://127.0.0.1:3000",
