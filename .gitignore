@@ -72,3 +72,5 @@ uploads/
 
 # Node (if you use React/Vue for frontend)
 node_modules/
+
+*.html
