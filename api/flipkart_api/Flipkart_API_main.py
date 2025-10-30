@@ -9,6 +9,8 @@ from app.agents.flipkart.automation.core import FlipkartAutomation
 from app.agents.flipkart.automation.steps import FlipkartSteps
 from app.agents.flipkart.main import FlipkartFlow  # use your existing class
 
+from fastapi import APIRouter
+router = APIRouter()
 app = FastAPI(title="Flipkart Automation API")
 
 # ---- Data Models ----
@@ -50,20 +52,21 @@ def load_shipping(use_saved=True, override=None) -> Dict[str, Any]:
 
 
 # ---- Endpoints ----
-# @app.on_event("startup")
-# async def startup():
-#     global automation
-#     automation = FlipkartAutomation()
-#     await automation.initialize_browser()
+@router.on_event("startup")
+async def startup():
+    global automation
+    automation = FlipkartAutomation()
+    await automation.initialize_browser()
 
 
-@app.post("/login")
+@router.post("/login")
 async def login(req: LoginRequest):
     """Launch Flipkart login page and handle OTP input."""
     global automation
     if not automation:
         return {"error": "Automation not initialized."}
     try:
+        await automation.page.goto("https://www.flipkart.com/account/login", wait_until="networkidle")
         steps = FlipkartSteps(automation)
         await steps._login_with_phone()
 
@@ -72,7 +75,7 @@ async def login(req: LoginRequest):
         return {"error": str(e)}
 
 
-@app.post("/run")
+@router.post("/run")
 async def run_automation(req: RunRequest, background_tasks: BackgroundTasks):
     """Run full Flipkart automation: search → cart → checkout → payment."""
     global automation
@@ -98,7 +101,7 @@ async def run_automation(req: RunRequest, background_tasks: BackgroundTasks):
         return {"error": str(e)}
 
 
-@app.on_event("shutdown")
+@router.on_event("shutdown")
 async def shutdown():
     global automation
     if automation:
