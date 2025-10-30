@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import re
+from fastapi import APIRouter
 
 from app.agents.ride_booking.ola.core import OlaAutomation
 from app.agents.ride_booking.uber.core import UberAutomation
@@ -50,6 +51,8 @@ app = FastAPI(
     description="An API to automate searching and booking rides on Ola and Uber.",
 )
 
+router = APIRouter()
+
 logger = setup_logger()
 
 # In-memory storage for active automation jobs.
@@ -68,7 +71,7 @@ def _parse_price(price_str: Optional[str]) -> float:
 
 # --- API Endpoints ---
 
-@app.post("/search", response_model=RideSearchResponse)
+@router.post("/search", response_model=RideSearchResponse)
 async def search_for_rides(request: RideSearchRequest):
     """
     Initializes a new automation job, searches for rides on both platforms,
@@ -167,7 +170,7 @@ async def search_for_rides(request: RideSearchRequest):
     return RideSearchResponse(job_id=job_id, rides=sorted_api_rides)
 
 
-@app.post("/book", response_model=BookingResponse)
+@router.post("/book", response_model=BookingResponse)
 async def book_a_ride(request: RideBookingRequest):
     """
     Books the selected ride for a given job and then cleans up the browser sessions.
