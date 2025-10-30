@@ -112,3 +112,12 @@ win32_setctime==1.2.0
 pip==25.2
 
 Crawl4AI
+playwright>=1.40.0
+langchain>=0.1.0
+langchain-google-genai>=1.0.0
+langgraph>=0.0.40
+langchain-mcp-adapters>=0.1.0
+fastapi
+uvicorn
+python-dotenv
+goole-generativeai

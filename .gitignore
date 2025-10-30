@@ -1,3 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# API Keys
+api/api_keys/
+
 # ============================
 # FASTAPI PROJECT .gitignore
 # ============================
