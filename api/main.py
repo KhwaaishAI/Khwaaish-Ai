@@ -6,7 +6,7 @@ from api.flipkart_api import Flipkart_API_main
 # -------------------------------------------------
 # Initialize app once
 # -------------------------------------------------
-app = FastAPI(title="")
+app = FastAPI(title="My API")
 
 origins = [
     "http://127.0.0.1:3000",
@@ -26,5 +26,5 @@ app.add_middleware(
 # -------------------------------------------------
 # Routers
 # -------------------------------------------------
-app.include_router(Flipkart_API_main.router, prefix="/flipkart_automation", tags=["Automation"])
-app.include_router(amazon_api_main.router, prefix="/amazon_aitomation", tags=["Automation"])
+app.include_router(Flipkart_API_main.router, prefix="/flipkart_automation", tags=["Flipkart-Automation"])
+app.include_router(amazon_api_main.router, prefix="/amazon_aitomation", tags=["Amazon-Automation"])

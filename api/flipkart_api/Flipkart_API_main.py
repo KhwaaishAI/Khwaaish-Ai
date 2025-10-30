@@ -89,8 +89,9 @@ async def run_automation(req: RunRequest, background_tasks: BackgroundTasks):
                 while hasattr(automation, "browser") and not automation.browser.is_closed():
                     await asyncio.sleep(2)
 
-        background_tasks.add_task(execute_flow)
-        return {"status": "🚀 Flow started", "product": req.product}
+        # background_tasks.add_task(execute_flow)
+        execute_flow()
+        return {"status": "🚀 Automation Completed", "product": req.product}
 
     except Exception as e:
         return {"error": str(e)}

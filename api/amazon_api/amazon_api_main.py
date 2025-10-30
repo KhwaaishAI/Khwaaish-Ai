@@ -1,4 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.routing import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import asyncio
@@ -10,7 +11,7 @@ from app.agents.amazon_automator.flow import AmazonAutomationFlow  # the class y
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Amazon Automation API")
-
+router = APIRouter()
 # ----------------------------
 # In-memory state store
 # ----------------------------
@@ -35,7 +36,7 @@ class ProductSelectionRequest(BaseModel):
 # ----------------------------
 # Endpoint: Login
 # ----------------------------
-@app.post("/login")
+@router.post("/login")
 async def login_user(request: LoginRequest):
     """Logs user into Amazon using stored credentials."""
     phone = request.phone_number
@@ -65,7 +66,7 @@ async def login_user(request: LoginRequest):
 # ----------------------------
 # Endpoint: Run full flow
 # ----------------------------
-@app.post("/run")
+@router.post("/run")
 async def run_full_flow(request: RunRequest, background_tasks: BackgroundTasks):
     """Runs the Amazon full automation flow asynchronously."""
     phone = request.phone_number
@@ -108,7 +109,7 @@ async def run_full_flow(request: RunRequest, background_tasks: BackgroundTasks):
 # ----------------------------
 # Endpoint: Product selection
 # ----------------------------
-@app.post("/select-product")
+@router.post("/select-product")
 async def select_product(request: ProductSelectionRequest, background_tasks: BackgroundTasks):
     """Continue automation after user selects a product index."""
     phone = request.phone_number
