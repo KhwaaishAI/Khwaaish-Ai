@@ -109,7 +109,6 @@ win32_setctime==1.2.0
 # ======================
 # 🧱 BUILD TOOLS
 # ======================
-pip==25.2
 
 Crawl4AI
 playwright>=1.40.0
