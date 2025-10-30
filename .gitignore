@@ -72,4 +72,4 @@ uploads/
 
 # Node (if you use React/Vue for frontend)
 node_modules/
-app/agents/ride_booking/sessions
+app/agents/ride_booking/sessions/
