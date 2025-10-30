@@ -6,7 +6,18 @@
       "padded_top_topics_start_index": 0,
       "taxonomy_version": 0,
       "top_topics_and_observing_domains": [  ]
+   }, {
+      "calculation_time": "13406277935467248",
+      "config_version": 0,
+      "model_version": "0",
+      "padded_top_topics_start_index": 0,
+      "taxonomy_version": 0,
+      "top_topics_and_observing_domains": [  ]
    } ],
    "hex_encoded_hmac_key": "3557FB29F0A82B6A178A4075C92158B1E17143EDA988B5A5749232F111050AC2",
+<<<<<<< HEAD
    "next_scheduled_calculation_time": "13405927359092855"
+=======
+   "next_scheduled_calculation_time": "13406882735467356"
+>>>>>>> saif
 }

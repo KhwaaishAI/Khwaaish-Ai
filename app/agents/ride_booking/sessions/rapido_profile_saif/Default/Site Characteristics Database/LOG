@@ -1,3 +1,9 @@
+<<<<<<< HEAD
 2025/10/25-22:48:32.234 65a8 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Site Characteristics Database/MANIFEST-000001
 2025/10/25-22:48:32.239 65a8 Recovering log #3
 2025/10/25-22:48:32.242 65a8 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Site Characteristics Database/000003.log 
+=======
+2025/10/30-11:35:07.646 3b90 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Site Characteristics Database/MANIFEST-000001
+2025/10/30-11:35:07.646 3b90 Recovering log #3
+2025/10/30-11:35:07.671 3b90 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Site Characteristics Database/000003.log 
+>>>>>>> saif

@@ -1,3 +1,9 @@
+<<<<<<< HEAD
 2025/10/25-22:48:31.595 660e Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Service Worker/Database/MANIFEST-000001
 2025/10/25-22:48:31.614 660e Recovering log #3
 2025/10/25-22:48:31.614 660e Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Service Worker/Database/000003.log 
+=======
+2025/10/30-11:35:07.440 3b2c Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Service Worker/Database/MANIFEST-000001
+2025/10/30-11:35:07.442 3b2c Recovering log #3
+2025/10/30-11:35:07.443 3b2c Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Service Worker/Database/000003.log 
+>>>>>>> saif

@@ -2,11 +2,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.amazon_api import amazon_api_main  
 from api.flipkart_api import Flipkart_API_main 
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
+from api.ride_booking_api import api
 
 # -------------------------------------------------
 # Initialize app once
 # -------------------------------------------------
-app = FastAPI(title="")
+app = FastAPI(title="Khwaaish-api")
 
 origins = [
     "http://127.0.0.1:3000",
@@ -28,3 +31,5 @@ app.add_middleware(
 # -------------------------------------------------
 app.include_router(Flipkart_API_main.router, prefix="/flipkart_automation", tags=["Automation"])
 app.include_router(amazon_api_main.router, prefix="/amazon_aitomation", tags=["Automation"])
+app.include_router(api.router, prefix="/ride-booking", tags=["ride-booking"])
+
