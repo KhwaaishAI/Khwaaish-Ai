@@ -1,4 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.routing import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import asyncio
@@ -10,7 +11,7 @@ from app.agents.amazon_automator.flow import AmazonAutomationFlow  # the class y
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Amazon Automation API")
-
+router = APIRouter()
 # ----------------------------
 # In-memory state store
 # ----------------------------
@@ -20,11 +21,10 @@ sessions: Dict[str, Dict[str, Any]] = {}  # key: phone_number
 # Request models
 # ----------------------------
 class LoginRequest(BaseModel):
-    phone_number: str
-    password: str
+    phone_number: int
 
 class RunRequest(BaseModel):
-    phone_number: str
+    phone_number: int
     search_query: str
     specifications: Optional[Dict[str, str]] = None
 
@@ -36,7 +36,7 @@ class ProductSelectionRequest(BaseModel):
 # ----------------------------
 # Endpoint: Login
 # ----------------------------
-@app.post("/login")
+@router.post("/login")
 async def login_user(request: LoginRequest):
     """Logs user into Amazon using stored credentials."""
     phone = request.phone_number
@@ -45,7 +45,7 @@ async def login_user(request: LoginRequest):
     await automator.initialize_browser()
 
     try:
-        success = await automator.login(request.phone_number, request.password)
+        success = await automator.handle_login(request.phone_number)
         if not success:
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -66,7 +66,7 @@ async def login_user(request: LoginRequest):
 # ----------------------------
 # Endpoint: Run full flow
 # ----------------------------
-@app.post("/run")
+@router.post("/run")
 async def run_full_flow(request: RunRequest, background_tasks: BackgroundTasks):
     """Runs the Amazon full automation flow asynchronously."""
     phone = request.phone_number
@@ -109,7 +109,7 @@ async def run_full_flow(request: RunRequest, background_tasks: BackgroundTasks):
 # ----------------------------
 # Endpoint: Product selection
 # ----------------------------
-@app.post("/select-product")
+@router.post("/select-product")
 async def select_product(request: ProductSelectionRequest, background_tasks: BackgroundTasks):
     """Continue automation after user selects a product index."""
     phone = request.phone_number
@@ -118,9 +118,7 @@ async def select_product(request: ProductSelectionRequest, background_tasks: Bac
         raise HTTPException(status_code=400, detail="Not waiting for selection")
 
     product_index = request.product_index
-    flow = sessions[phone]["flow"]
     automator = sessions[phone]["automator"]
-    products = sessions[phone]["products"]
 
     selected_product = automator.select_product(product_index)
 
@@ -134,7 +132,18 @@ async def select_product(request: ProductSelectionRequest, background_tasks: Bac
             available_specs = await automator.find_specifications()
 
             if available_specs:
-                print(f"Available specs: {list(available_specs.keys())}")
+                print(f"Available specifications: {list(available_specs.keys())}")
+                
+                if not specifications:
+                    specifications = {}
+                    for spec_name, options in available_specs.items():
+                        print(f"\n{spec_name} options: {options}")
+                        choice = input(f"Choose {spec_name} (or press Enter to skip): ").strip()
+                        if choice:
+                            specifications[spec_name] = choice
+                
+                if specifications:
+                    await automator.choose_specifications(specifications)
 
             # Add to cart
             print("\n🛒 STEP 5: ADDING TO CART...")
@@ -159,9 +168,10 @@ async def select_product(request: ProductSelectionRequest, background_tasks: Bac
             logger.error(f"Continuation error: {e}", exc_info=True)
             sessions[phone]["state"] = "error"
 
-    background_tasks.add_task(continue_task)
+    # background_tasks.add_task(continue_task)
+    continue_task()
 
     return {
-        "message": f"Product {product_index} selected. Continuing automation...",
+        "message": f"Product {product_index} selected. Automation Completed",
         "selected_product": selected_product,
     }

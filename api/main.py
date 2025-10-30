@@ -42,5 +42,3 @@ app.include_router(api.router, prefix="/ride-booking", tags=["ride-booking"])
 app.include_router(blinkit_router, prefix="/api", tags=["blinkit"])
 app.include_router(zepto_router, prefix="/api", tags=["zepto"])
 app.include_router(swiggy_router, prefix="/api", tags=["swiggy"])
-
-

@@ -51,22 +51,17 @@ def load_shipping(use_saved=True, override=None) -> Dict[str, Any]:
     raise ValueError("Shipping info not found or provided.")
 
 
-# ---- Endpoints ----
-@router.on_event("startup")
-async def startup():
-    global automation
-    automation = FlipkartAutomation()
-    await automation.initialize_browser()
-
 
 @router.post("/login")
 async def login(req: LoginRequest):
     """Launch Flipkart login page and handle OTP input."""
     global automation
+    automation = FlipkartAutomation()
+    await automation.initialize_browser()
     if not automation:
         return {"error": "Automation not initialized."}
     try:
-        await automation.page.goto("https://www.flipkart.com/account/login", wait_until="networkidle")
+        await automation.page.goto("https://www.flipkart.com/account/login?ret=/", wait_until="networkidle")
         steps = FlipkartSteps(automation)
         await steps._login_with_phone()
 
@@ -94,8 +89,9 @@ async def run_automation(req: RunRequest, background_tasks: BackgroundTasks):
                 while hasattr(automation, "browser") and not automation.browser.is_closed():
                     await asyncio.sleep(2)
 
-        background_tasks.add_task(execute_flow)
-        return {"status": "🚀 Flow started", "product": req.product}
+        # background_tasks.add_task(execute_flow)
+        execute_flow()
+        return {"status": "🚀 Automation Completed", "product": req.product}
 
     except Exception as e:
         return {"error": str(e)}

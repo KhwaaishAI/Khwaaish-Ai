@@ -349,9 +349,8 @@ class AmazonAutomator:
         
         for indicator in captcha_indicators:
             if indicator in html_lower:
-                logger.warning(f"Potential CAPTCHA detected: {indicator}")
+                logger.warning(f"Potential CAPTCHA detected: {indicator} We aware while using Automation")
                 return True
-        
         return False
     
     async def handle_captcha(self):
@@ -582,7 +581,9 @@ class AmazonAutomator:
         
         if not locator:
             logger.error("'Add to Cart' button not found")
-            return False
+            print("\n⚠️  'Add to Cart' button not found. Please manually locate and click the 'Add to Cart' button in the browser window.")
+            input("Once you have clicked 'Add to Cart', press ENTER to continue...")
+            return True
         
         await self.safe_click(locator)
         
@@ -615,7 +616,9 @@ class AmazonAutomator:
         
         if not locator:
             logger.error("'Proceed to Checkout' not found")
-            return False
+            print("\n⚠️  Please manually locate and click the 'Proceed to Checkout' button in the browser window.")
+            input("Once you have clicked 'Proceed to Checkout', press ENTER to continue...")
+            return True
         
         await self.safe_click(locator)
         await asyncio.sleep(3)
@@ -665,7 +668,9 @@ class AmazonAutomator:
             await self.safe_fill(email_locator, email, mask_value=False)
         else:
             logger.error("Email field not found")
-            return False
+            print("\n⚠️  Please take manual control of the browser and enter the email")
+            input("Once you have entered the email, press ENTER to continue...")
+            return True
         
         # Click continue/next
         continue_locator = await self.find_element_safely(
@@ -693,9 +698,9 @@ class AmazonAutomator:
         if password_locator:
             # Password flow
             message_pwd = """
-        🔐 PASSWORD REQUIRED
-        ====================
-        Enter your Amazon password (will not be stored):
+             🔐 PASSWORD REQUIRED
+                ====================
+                Enter your Amazon password (will not be stored):
                     """
             await self._print_interactive(message_pwd, require_confirm=False)
             password = input("Password: ").strip()
@@ -710,33 +715,33 @@ class AmazonAutomator:
             if submit_locator:
                 await self.safe_click(submit_locator)
         
-        # Check for OTP
-        otp_locator = await self.find_element_safely(
-            self.SELECTORS['otp_input'],
-            timeout=5000
-        )
-        
-        if otp_locator:
-            message_otp = """
-            📱 OTP VERIFICATION
-            ===================
-            Amazon has sent a One-Time Password to your registered email/phone.
-            This tool does NOT intercept or read OTPs automatically (for security).
-
-            Please paste the OTP below:
-                        """
-            await self._print_interactive(message_otp, require_confirm=False)
-            otp = input("Enter OTP: ").strip()
-            
-            await self.safe_fill(otp_locator, otp, mask_value=True)
-            
-            # Submit OTP
-            otp_submit_locator = await self.find_element_safely(
-                self.SELECTORS['otp_submit'],
-                timeout=3000
+        else:
+            # Check for OTP
+            otp_locator = await self.find_element_safely(
+                self.SELECTORS['otp_input'],
+                timeout=5000
             )
-            if otp_submit_locator:
-                await self.safe_click(otp_submit_locator)
+            if otp_locator:
+                message_otp = """
+                📱 OTP VERIFICATION
+                ===================
+                Amazon has sent a One-Time Password to your registered email/phone.
+                This tool does NOT intercept or read OTPs automatically (for security).
+
+                Please paste the OTP below:
+                            """
+                await self._print_interactive(message_otp, require_confirm=False)
+                otp = input("Enter OTP: ").strip()
+                
+                await self.safe_fill(otp_locator, otp, mask_value=True)
+                
+                # Submit OTP
+                otp_submit_locator = await self.find_element_safely(
+                    self.SELECTORS['otp_submit'],
+                    timeout=3000
+                )
+                if otp_submit_locator:
+                    await self.safe_click(otp_submit_locator)
         
         # Wait for successful login
         try:
@@ -770,38 +775,15 @@ class AmazonAutomator:
                 success = await self.handle_login()
                 if not success:
                     logger.error("Login failed")
-                    return False
+                    print("\n⚠️  Please take manual control of the browser to proceed with login")
+                    input("Once you have loged-in, press ENTER to continue...")
+                    return True
         except Exception as e:
             logger.debug(f"Login check failed: {e}")
         
-        payment_selectors = [
-            '[data-feature-name="payment"]',
-            '#ppd',                                   # "Payment Page Details" container
-            'div.pmts-page-container',                # Payments module
-            'form[name="payment-form"]',              # Payment form wrapper
-            'h1:has-text("Select a payment method")', # Visible heading
-            'h1:has-text("Payment method")',          # Variant heading
-        ]
-
-        try:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        *[self.page.wait_for_selector(sel, timeout=10) for sel in payment_selectors]
-                    ),
-                    timeout=10
-                )
-            except asyncio.TimeoutError:
-                print("\n⚠️  Unable to automatically detect the payment page.")
-                print("Please take manual control of the browser to proceed with payment.")
-                print("Note: The automation does NOT have access to complete payment flows for your security.")
-                input("After you reach the payment page manually, press Enter to continue...")
-                return True
-            logger.info("Reached payment page")
-            return True
-        except asyncio.TimeoutError:
-            logger.warning("Payment page indicators not found — may still be a valid checkout state")
-            return True
+        logger.info("Procede with Payment")
+        print("\n⚠️  Please take manual control of the browser to proceed with the payment")
+        return True
     
     async def display_checkout_summary(self):
         """Display order summary from checkout page."""

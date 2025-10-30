@@ -1,11 +1,8 @@
 import logging
-from app.tools.Amazon_tools.search import AmazonScraper
 from app.agents.amazon_automator.automator import AmazonAutomator
 from typing import Optional,Dict
 
 logger = logging.getLogger(__name__)
-
-
 
 class AmazonAutomationFlow:
     """High-level workflow orchestrator."""
@@ -21,7 +18,6 @@ class AmazonAutomationFlow:
         ):
         """
         Execute full search -> select -> specs -> cart -> checkout flow.
-        
         Args:
             search_query: What to search for
             product_index: 1-based index from results
@@ -95,37 +91,10 @@ class AmazonAutomationFlow:
                 logger.error("Failed to reach payment page")
                 return
             
-            payment_done = input("\n📝 STEP 8: Have you completed your payment? (yes/no): ").strip().lower()
-            if payment_done in ['yes', 'y']:
-                print("\n✅ Payment confirmed by user. Showing order summary...")
-                await self.automator.display_checkout_summary()
-                print("\n" + "="*70)
-                print("🎉 AUTOMATION COMPLETE")
-                print("="*70)
-                print("\nNext steps:")
-                print("  1. Review the order summary in the browser")
-                print("  2. Verify delivery address and payment method")
-                print("  3. Click 'Place Order' to complete your purchase")
-                print("\nSession saved. You can run again to reuse login.")
-            else:
-                input("\n⏳ Please complete your payment in the browser and press Enter to continue...")
-                print("\n✅ Payment completion confirmed. Showing order summary...")
-                await self.automator.display_checkout_summary()
-                print("\n" + "="*70)
-                print("🎉 AUTOMATION COMPLETE")
-                print("="*70)
-                print("\nNext steps:")
-                print("  1. Review the order summary in the browser")
-                print("  2. Verify delivery address and payment method")
-                print("  3. Click 'Place Order' to complete your purchase")
-                print("\nSession saved. You can run again to reuse login.")
-        
-        except Exception as e:
-            logger.error(f"Flow error: {e}", exc_info=True)
-            print(f"\n❌ Error: {e}")
-        
+            payment_done = input("\n📝 STEP 8: Once the payment is done, press ENTER to continue...")
         finally:
-            await self.automator.close_browser()
+            if payment_done:
+                await self.automator.close_browser()
 
 if __name__ == "__main__":
     import asyncio
