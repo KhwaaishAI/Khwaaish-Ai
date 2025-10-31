@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from amazon_api import amazon_api_main  
-from flipkart_api import Flipkart_API_main 
+from api.amazon_api import amazon_api_main  
+from api.flipkart_api import Flipkart_API_main 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from ride_booking_api import api
-from blinkit_api.blinkit_api import router as blinkit_router
-from zepto_api.zepto_api import router as zepto_router
-from swiggy_api.swiggy_api import router as swiggy_router
+from api.ride_booking_api import api
+from api.blinkit_api.blinkit_api import router as blinkit_router
+from api.zepto_api.zepto_api import router as zepto_router
+from api.swiggy_api.swiggy_api import router as swiggy_router
 
 # -------------------------------------------------
 # Initialize app once
