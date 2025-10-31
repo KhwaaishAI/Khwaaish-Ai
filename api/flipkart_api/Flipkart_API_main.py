@@ -74,6 +74,8 @@ async def login(req: LoginRequest):
 async def run_automation(req: RunRequest, background_tasks: BackgroundTasks):
     """Run full Flipkart automation: search → cart → checkout → payment."""
     global automation
+    automation = FlipkartAutomation()
+    await automation.initialize_browser()
     if not automation:
         return {"error": "Automation not initialized."}
     try:
