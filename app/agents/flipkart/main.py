@@ -91,7 +91,10 @@ async def main():
         except KeyboardInterrupt:
             pass
     
-    await automation.close()
+    # --- FIX ---
+    # Changed from automation.close() to automation.close_browser()
+    # to match the method name in app/agents/flipkart/automation/core.py
+    await automation.close_browser()
 
 
 if __name__ == "__main__":

@@ -287,7 +287,7 @@ class FlipkartCrawler:
     async def search(
         self,
         query: str,
-        max_pages: int = 5,
+        max_pages: int = 1,
         callback: Optional[callable] = None,
     ) -> List[Product]:
         """

@@ -191,11 +191,11 @@ class FlipkartSteps:
             print(f"\n#{idx}. {title[:70]}")
             print(f"   💰 {price_str}", end="")
             if discount:
-                print(f"  🔖 {discount:.0f}% off", end="")
+                print(f"   🔖 {discount:.0f}% off", end="")
             print()
             if rating:
                 print(f"   ⭐ {rating}", end="")
-            print(f"   | 🏷️ {seller}   | 📦 {availability}")
+            print(f"   | 🏷️ {seller}    | 📦 {availability}")
 
         # Ask user for a selection
         try:
@@ -350,7 +350,7 @@ class FlipkartSteps:
         if 'login' in self.page.url.lower() or await self._check_login_required():
             self.logger.info("🔐 Login required")
             use_session = os.path.exists("user_shipping_session.json")
-            await self._login_with_phone(use_session=use_session)
+            await self._login_with_phone(phone=None, use_session=use_session) # Fixed: added phone=None
 
         if not await self._find_element(self.selectors["place_order"], click=True):
             self.logger.error("❌ Could not click Place Order")
@@ -361,7 +361,7 @@ class FlipkartSteps:
         if 'login' in self.page.url.lower() or await self._check_login_required():
             self.logger.info("🔐 Login required")
             use_session = os.path.exists("user_shipping_session.json")
-            await self._login_with_phone(use_session=use_session)
+            await self._login_with_phone(phone=None, use_session=use_session) # Fixed: added phone=None
         else:
             self.logger.info("✅ Already logged in")
 
