@@ -33,21 +33,6 @@ tqdm==4.67.1
 typing_extensions==4.15.0
 
 # ======================
-# ☁️ GOOGLE API & AUTH
-# ======================
-google-ai-generativelanguage==0.6.15
-google-api-core==2.26.0
-google-api-python-client==2.184.0
-google-auth==2.41.1
-google-auth-httplib2==0.2.0
-googleapis-common-protos==1.70.0
-grpcio==1.75.1
-grpcio-status==1.71.2
-proto-plus==1.26.1
-protobuf==5.29.5
-uritemplate==4.2.0
-
-# ======================
 # 🔐 SECURITY & CRYPTOGRAPHY
 # ======================
 pyasn1==0.6.1
@@ -119,4 +104,4 @@ langchain-mcp-adapters>=0.1.0
 fastapi
 uvicorn
 python-dotenv
-goole-generativeai
+google-genai
