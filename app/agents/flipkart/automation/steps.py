@@ -495,8 +495,4 @@ class FlipkartSteps:
         # if await self._find_element(payment_selectors, 10000, click=True):
         self.logger.info("🎯 Ready for manual payment...")
         print("💳 Complete payment manually. Browser will stay open for 10 minutes...")
-<<<<<<< HEAD
-        await asyncio.sleep(600)
-=======
         await asyncio.sleep(60)
->>>>>>> Manav

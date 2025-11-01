@@ -287,17 +287,6 @@ async def select_product(request: ProductSelectionRequest):
                 available_specs = await automator.find_specifications()
 
                 if available_specs:
-                #     print(f"Available specifications: {list(available_specs.keys())}")
-                    
-                #     local_specs = specifications # Use specs from request
-                #     if not local_specs:
-                #         print("No specifications provided in request. Prompting user on server console...")
-                #         local_specs = {} # Re-init as empty dict
-                #         for spec_name, options in available_specs.items():
-                #             print(f"\n{spec_name} options: {options}")
-                #             choice = input(f"Choose {spec_name} (or press Enter to skip): ").strip()
-                #             if choice:
-                #                 local_specs[spec_name] = choice
                     local_specs = specifications 
                     if local_specs:
                             print(f"Using specifications: {local_specs}")

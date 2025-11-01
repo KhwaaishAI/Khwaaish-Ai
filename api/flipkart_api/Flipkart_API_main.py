@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 from app.agents.flipkart.automation.core import FlipkartAutomation
 from app.agents.flipkart.automation.steps import FlipkartSteps
+import asyncio
 from app.tools.flipkart_tools.search import FlipkartCrawler, Product # Assuming Product is importable
 
 # Initialize logger

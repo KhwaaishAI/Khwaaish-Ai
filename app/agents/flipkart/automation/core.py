@@ -49,14 +49,8 @@ class FlipkartAutomation:
             ]
         }
         
-<<<<<<< HEAD
-        # This check will now work correctly
-        if self.proxy:
-            browser_kwargs['proxy'] = {'server': self.proxy}
-=======
         # if self.proxy:
         #     browser_kwargs['proxy'] = {'server': self.proxy}
->>>>>>> Manav
         
         self.browser = await self.playwright.chromium.launch(**browser_kwargs)
         
@@ -80,14 +74,8 @@ class FlipkartAutomation:
         self.context = await self.browser.new_context(**context_kwargs)
         self.page = await self.context.new_page()
         
-<<<<<<< HEAD
-        # Set default timeout
-        # This will now work correctly using self.timeout
-        self.page.set_default_timeout(self.timeout)
-=======
         # # Set default timeout
         # self.page.set_default_timeout(self.timeout)
->>>>>>> Manav
         
         self.logger.info("Browser initialized successfully")
         # --- FIX for main.py logic ---
