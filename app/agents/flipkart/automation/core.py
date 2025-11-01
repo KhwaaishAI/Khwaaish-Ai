@@ -31,8 +31,8 @@ class FlipkartAutomation:
             ]
         }
         
-        if self.proxy:
-            browser_kwargs['proxy'] = {'server': self.proxy}
+        # if self.proxy:
+        #     browser_kwargs['proxy'] = {'server': self.proxy}
         
         self.browser = await playwright.chromium.launch(**browser_kwargs)
         
@@ -55,8 +55,8 @@ class FlipkartAutomation:
         self.context = await self.browser.new_context(**context_kwargs)
         self.page = await self.context.new_page()
         
-        # Set default timeout
-        self.page.set_default_timeout(self.timeout)
+        # # Set default timeout
+        # self.page.set_default_timeout(self.timeout)
         
         self.logger.info("Browser initialized successfully")
 
