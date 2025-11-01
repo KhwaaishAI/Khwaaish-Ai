@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 import re
 from fastapi import APIRouter
 
-from app.agents.ride_booking.ola.core import OlaAutomation
+# from app.agents.ride_booking.ola.core import OlaAutomation
 from app.agents.ride_booking.uber.core import UberAutomation
 from app.agents.ride_booking.rapido.core import RapidoAutomation
 from app.agents.ride_booking.utills.logger import setup_logger
@@ -18,7 +18,7 @@ class RideSearchRequest(BaseModel):
     """Defines the data needed to perform a ride search."""
     pickup_location: str
     destination_location: str
-    ola_session_name: str
+    # ola_session_name: str
     uber_session_name: str
     rapido_session_name: str
 
@@ -82,7 +82,7 @@ async def search_for_rides(request: RideSearchRequest):
     job_id = str(uuid.uuid4())
     logger.info(f"Creating new job with ID: {job_id}")
 
-    ola_automation = OlaAutomation()
+    # ola_automation = OlaAutomation()
     uber_automation = UberAutomation()
     rapido_automation = RapidoAutomation()
 
@@ -90,7 +90,7 @@ async def search_for_rides(request: RideSearchRequest):
         # --- 1. Initialize Browsers ---
         logger.info(f"Job {job_id}: Initializing browsers and sessions...")
         await asyncio.gather(
-            ola_automation.initialize(request.ola_session_name),
+            # ola_automation.initialize(request.ola_session_name),
             uber_automation.initialize(request.uber_session_name),
             rapido_automation.initialize(request.rapido_session_name)
         )
@@ -100,35 +100,35 @@ async def search_for_rides(request: RideSearchRequest):
         error_message = f"Initialization failed for job {job_id}: {e}\n{traceback.format_exc()}"
         logger.error(error_message)
         # Ensure cleanup even on initialization failure
-        await asyncio.gather(ola_automation.stop(), uber_automation.stop(), rapido_automation.stop())
+        await asyncio.gather(uber_automation.stop(), rapido_automation.stop())
         raise HTTPException(status_code=500, detail=f"Browser initialization failed: {e}")
 
     # --- 5. Search for Rides in Parallel (from aggregator.py) ---
-    ola_task = ola_automation.search_rides(request.pickup_location, request.destination_location)
+    # ola_task = ola_automation.search_rides(request.pickup_location, request.destination_location)
     uber_task = uber_automation.search_rides(request.pickup_location, request.destination_location)
     rapido_task = rapido_automation.search_rides(request.pickup_location, request.destination_location)
     # return_exceptions=True prevents one failure from stopping the other.
-    ola_results, uber_results, rapido_results = await asyncio.gather(ola_task, uber_task, rapido_task, return_exceptions=True)
+    uber_results, rapido_results = await asyncio.gather(uber_task, rapido_task, return_exceptions=True)
 
     # --- 6. Combine and Process Results (from aggregator.py) ---
     all_rides = []
     api_response_rides = []
 
-    if isinstance(ola_results, list):
-        logger.info(f"Job {job_id}: Found {len(ola_results)} rides on Ola.")
-        for ride in ola_results:
-            ride['platform'] = 'Ola' # Add platform to the original ride object for matching
-            # The original 'ride' object contains the non-serializable Playwright locator.
-            # We store it in 'all_rides' for the booking step.
-            all_rides.append(ride)
+    # if isinstance(ola_results, list):
+    #     logger.info(f"Job {job_id}: Found {len(ola_results)} rides on Ola.")
+    #     for ride in ola_results:
+    #         ride['platform'] = 'Ola' # Add platform to the original ride object for matching
+    #         # The original 'ride' object contains the non-serializable Playwright locator.
+    #         # We store it in 'all_rides' for the booking step.
+    #         all_rides.append(ride)
             
-            # For the API response, we create a serializable copy and remove the locator.
-            serializable_details = ride.copy()
-            serializable_details.pop('locator', None) # Safely remove the locator
-            serializable_details['platform'] = 'Ola' # Ensure platform is in details
-            api_response_rides.append(Ride(platform='Ola', name=ride['name'], price=ride.get('price'), raw_details=serializable_details))
-    else:
-        logger.error(f"Job {job_id}: Failed to get Ola rides: {ola_results}")
+    #         # For the API response, we create a serializable copy and remove the locator.
+    #         serializable_details = ride.copy()
+    #         serializable_details.pop('locator', None) # Safely remove the locator
+    #         serializable_details['platform'] = 'Ola' # Ensure platform is in details
+    #         api_response_rides.append(Ride(platform='Ola', name=ride['name'], price=ride.get('price'), raw_details=serializable_details))
+    # else:
+    #     logger.error(f"Job {job_id}: Failed to get Ola rides: {ola_results}")
 
     if isinstance(uber_results, list):
         logger.info(f"Job {job_id}: Found {len(uber_results)} rides on Uber.")
@@ -158,7 +158,7 @@ async def search_for_rides(request: RideSearchRequest):
 
     # Store the necessary objects for the booking step
     active_jobs[job_id] = {
-        "ola": ola_automation,
+        # "ola": ola_automation,
         "uber": uber_automation,
         "rapido": rapido_automation,
         "all_rides": all_rides
@@ -180,7 +180,7 @@ async def book_a_ride(request: RideBookingRequest):
         raise HTTPException(status_code=404, detail="Job not found.")
 
     job = active_jobs[job_id]
-    ola_automation = job["ola"]
+    # ola_automation = job["ola"]
     uber_automation = job["uber"]
     rapido_automation = job["rapido"]
 
@@ -204,7 +204,7 @@ async def book_a_ride(request: RideBookingRequest):
             if platform == 'Uber' and original_ride.get('product_id') == selected_ride.get('product_id'):
                 ride_to_book = original_ride
                 break
-            elif platform in ['Ola', 'Rapido'] and original_ride.get('name') == selected_ride.get('name'):
+            elif platform == 'Rapido' and original_ride.get('name') == selected_ride.get('name'):
                 ride_to_book = original_ride
                 break
     
@@ -213,9 +213,9 @@ async def book_a_ride(request: RideBookingRequest):
 
     try:
         logger.info(f"Job {job_id}: Attempting to book '{selected_ride.get('name')}' on {platform}.")
-        if platform == 'Ola':
-            await ola_automation.book_ride(ride_to_book)
-        elif platform == 'Uber':
+        # if platform == 'Ola':
+        #     await ola_automation.book_ride(ride_to_book)
+        if platform == 'Uber':
             await uber_automation.book_ride(ride_to_book)
         elif platform == 'Rapido':
             await rapido_automation.book_ride(ride_to_book)
@@ -229,7 +229,7 @@ async def book_a_ride(request: RideBookingRequest):
     finally:
         # --- Always clean up the job after a booking attempt ---
         logger.info(f"Job {job_id}: Shutting down automations...")
-        await asyncio.gather(ola_automation.stop(), uber_automation.stop(), rapido_automation.stop())
+        await asyncio.gather(uber_automation.stop(), rapido_automation.stop())
         # Remove the job from memory
         del active_jobs[job_id]
         logger.info(f"Job {job_id} stopped and cleaned up successfully.")

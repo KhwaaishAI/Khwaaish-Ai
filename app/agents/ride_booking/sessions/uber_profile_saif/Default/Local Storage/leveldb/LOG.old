@@ -1,9 +1,15 @@
-<<<<<<< HEAD
-2025/10/25-22:48:01.154 62c3 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/MANIFEST-000001
-2025/10/25-22:48:01.302 62c3 Recovering log #16
-2025/10/25-22:48:01.386 62c3 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/000016.log 
-=======
-2025/10/30-11:34:43.258 386a Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/MANIFEST-000001
-2025/10/30-11:34:43.348 386a Recovering log #16
-2025/10/30-11:34:43.404 386a Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/000016.log 
->>>>>>> saif
+2025/11/01-13:36:10.224 8968 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/MANIFEST-000001
+2025/11/01-13:36:10.275 8968 Recovering log #16
+2025/11/01-13:36:10.285 8968 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/uber_profile_saif/Default/Local Storage/leveldb/000016.log 
+2025/11/01-13:37:10.322 896b Level-0 table #20: started
+2025/11/01-13:37:10.329 896b Level-0 table #20: 12409 bytes OK
+2025/11/01-13:37:10.340 896b Delete type=0 #16
+2025/11/01-13:37:10.346 896b Compacting 4@0 + 1@1 files
+2025/11/01-13:37:10.353 896b Generated table #21@0: 313 keys, 4920 bytes
+2025/11/01-13:37:10.353 896b Compacted 4@0 + 1@1 files => 4920 bytes
+2025/11/01-13:37:10.362 896b compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/01-13:37:10.363 896b Delete type=2 #8
+2025/11/01-13:37:10.363 896b Delete type=2 #10
+2025/11/01-13:37:10.364 896b Delete type=2 #14
+2025/11/01-13:37:10.364 896b Delete type=2 #17
+2025/11/01-13:37:10.364 896b Delete type=2 #20

@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-2025/10/25-22:48:00.407 61ea Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/ola_profile_saif_new/Default/Sync Data/LevelDB/MANIFEST-000001
-2025/10/25-22:48:00.421 61ea Recovering log #3
-2025/10/25-22:48:00.421 61ea Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/ola_profile_saif_new/Default/Sync Data/LevelDB/000003.log 
-=======
-2025/10/30-11:34:43.091 37f5 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/ola_profile_saif_new/Default/Sync Data/LevelDB/MANIFEST-000001
-2025/10/30-11:34:43.126 37f5 Recovering log #3
-2025/10/30-11:34:43.128 37f5 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/ola_profile_saif_new/Default/Sync Data/LevelDB/000003.log 
->>>>>>> saif
+2025/11/01-13:09:55.148 6999 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/ola_profile_saif_new/Default/Sync Data/LevelDB/MANIFEST-000001
+2025/11/01-13:09:55.153 6999 Recovering log #3
+2025/11/01-13:09:55.156 6999 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/ola_profile_saif_new/Default/Sync Data/LevelDB/000003.log 

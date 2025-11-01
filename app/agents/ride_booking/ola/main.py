@@ -28,16 +28,37 @@ async def main():
     pickup_location = input("Please enter your pickup location: ")
     destination_location = input("Please enter your destination location: ")
 
-    automation = OlaAutomation(job_id="local-ola-test")
+    automation = OlaAutomation()
     try:
         # This will start the browser and the automation flow defined in core.py
-        await automation.start(session_name, pickup_location, destination_location)
+        await automation.initialize(session_name)
+        ride_options = await automation.search_rides(pickup_location, destination_location)
+
+        if not ride_options:
+            print("\n❌ No ride options found on ola.")
+        else:
+            print("\n--- Available ola Rides ---")
+            for i, ride in enumerate(ride_options):
+                print(f"  {i + 1}: {ride['name']} - {ride.get('price', 'N/A')} ({ride.get('eta', 'N/A')})")
+
+            # --- Add ride selection logic ---
+            try:
+                choice_str = input("\nEnter the number of the ride you want to select (or press Enter to skip): ")
+                if choice_str.strip():  # Check if user entered something
+                    choice = int(choice_str) - 1
+                    if 0 <= choice < len(ride_options):
+                        selected_ride = ride_options[choice]
+                        print(f"\nSelecting ride: {selected_ride['name']}...")
+                        await automation.book_ride(selected_ride)
+                    else:
+                        print("Invalid selection. Exiting.")
+            except (ValueError, IndexError):
+                print("Invalid input. Exiting.")
     except Exception as e:
         print(f"\n❌ An unexpected error occurred during automation: {e}")
     finally:
-        # The stop() method is already called inside start()'s finally block,
-        # but calling it here ensures cleanup even if start() itself fails early.
         await automation.stop()
+
 
 if __name__ == "__main__":
     print("🚀 Starting Ola Automation Test Script...")
