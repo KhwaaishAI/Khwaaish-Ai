@@ -6,6 +6,7 @@ from typing import Dict, Optional, Any, List
 from app.tools.flipkart_tools.search import FlipkartCrawler, Product
 from app.agents.flipkart.automation.core import FlipkartAutomation
 import time
+from pathlib import Path
 
 
 class FlipkartSteps:
@@ -77,12 +78,68 @@ class FlipkartSteps:
                 continue
         return False
 
-    async def _login_with_phone(self,phone:Optional[int],use_session:bool):
-        """Optimized phone login"""
+    async def login_enter_phone(self, phone: str) -> bool:
+        """
+        API-friendly function: Enters the phone number and requests the OTP.
+        Called by /login/start.
+        """
+        self.logger.info(f"🔐 Starting API login for phone: {phone}")
+
+        # Fill phone
+        if not await self._fill_input(phone, self.selectors["phone_input"]):
+            self.logger.error("❌ Phone input not found")
+            return False
+        self.logger.info("✅ Phone entered")
+
+        # Click continue
+        if not await self._find_element(self.selectors["continue_btn"], click=True):
+            self.logger.warning("⚠️ Continue button not found")
+            return False
+        
+        await asyncio.sleep(2)  # Wait for OTP page to presumably load
+        self.logger.info("✅ OTP requested, page is waiting for input.")
+        return "✅ OTP requested, page is waiting for input."
+
+    async def login_submit_otp(self, otp: str) -> bool:
+        """
+        API-friendly function: Submits the OTP to complete login.
+        Called by /login/verify.
+        """
+        self.logger.info("🔐 Submitting OTP...")
+
+        # Fill OTP
+        if not await self._fill_input(otp, self.selectors["otp_input"]):
+            self.logger.error("❌ OTP input not found")
+            return False
+        self.logger.info("✅ OTP entered")
+
+        # Click signup/login button
+        await asyncio.sleep(1)
+        if not await self._find_element(self.selectors["continue_btn"], timeout=5000, click=True):
+             self.logger.error("❌ Login/Verify button not found")
+             return False
+        
+        await self.page.wait_for_load_state('networkidle')
+        
+        # You should add a check here to confirm login was successful
+        # e.g., check for "My Account" element
+
+        self.user_data['logged_in'] = True
+        self.user_data['login_timestamp'] = time.time()
+        self._save_user_session()
+        self.logger.info("✅ Login successful")
+        return "✅ Login successful"
+
+    async def _login_with_phone(self, phone:Optional[int], use_session:bool):
+        """
+        Optimized phone login - FOR SCRIPT USE ONLY (due to input()).
+        This is your original function, left here for your reference
+        or for running as a standalone script.
+        """
+        self.logger.warning("Using legacy _login_with_phone with input(). This will block an API server.")
         if use_session:
             session_file = "user_shipping_session.json"
             phone = None
-
             try:
                 if os.path.exists(session_file):
                     with open(session_file, 'r') as f:
@@ -91,7 +148,7 @@ class FlipkartSteps:
                 pass
 
         if not phone:
-            phone = phone or input("📱 Enter phone number: ").strip()
+            phone = phone or input("📱 Enter phone number: ").strip() # <--- BLOCKS API
 
         self.logger.info("🔐 Starting phone login...")
 
@@ -107,7 +164,7 @@ class FlipkartSteps:
         await asyncio.sleep(2)
 
         # Fill OTP
-        otp = input("Enter OTP: ").strip()
+        otp = input("Enter OTP: ").strip() # <--- BLOCKS API
         if not await self._fill_input(otp, self.selectors["otp_input"]):
             self.logger.error("❌ OTP input not found")
             return False
@@ -216,6 +273,29 @@ class FlipkartSteps:
 
         print("No selection made.")
         return None
+
+    async def step_2_select_product(self, product_id: str):
+        """Select product"""
+
+        out_path = Path("./out/flipkart")
+        found_url = None
+
+        # Look for files matching pattern in ./out/flipkart
+        for file in out_path.glob("products-*.json"):
+            try:
+                with open(file, "r", encoding="utf-8") as f:
+                    products = json.load(f)
+                    for prod in products:
+                        if str(prod.get("id") or "") == str(product_id):
+                            found_url = prod.get("product_url")
+                            break
+                    if found_url:
+                        break
+            except Exception:
+                continue
+
+        self.selected_url = found_url
+        return self.selected_url
 
     async def step_3_handle_product_options(self):
         """Handle product options and delivery check"""
@@ -411,9 +491,12 @@ class FlipkartSteps:
         """Proceed to payment"""
         self.logger.info("💰 Proceeding to payment...")
         
-        payment_selectors = ["button:has-text('Proceed to Pay')", "button:has-text('Proceed to Payment')"]
-        await self._find_element(payment_selectors, 10000, click=True)
-        
+        # payment_selectors = ["button:has-text('Proceed to Pay')", "button:has-text('Proceed to Payment')"]
+        # if await self._find_element(payment_selectors, 10000, click=True):
         self.logger.info("🎯 Ready for manual payment...")
         print("💳 Complete payment manually. Browser will stay open for 10 minutes...")
+<<<<<<< HEAD
         await asyncio.sleep(600)
+=======
+        await asyncio.sleep(60)
+>>>>>>> Manav

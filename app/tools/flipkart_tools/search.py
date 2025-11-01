@@ -359,11 +359,26 @@ class FlipkartCrawler:
             return None
 
     def _add_products(self, products: List[Product]) -> int:
-        """Add products, return count of new products."""
+        """
+        Add products, return count of new products.
+        If id present (e.g. prod.id = 'MOBGHWFHMVUQNYH8'), use it as is,
+        else generate a unique id (uid) using hash of title, price and random value.
+        """
         new = 0
         for prod in products:
-            if prod.id not in self.products:
-                self.products[prod.id] = prod
+            # Example of id: 'MOBGHWFHMVUQNYH8'
+            prod_id = prod.id
+            if not prod_id:
+                base = (
+                    (prod.title or "") +
+                    str(prod.price or "") +
+                    str(random.randint(1, 1_000_000))
+                )
+                prod_id = hashlib.md5(base.encode("utf-8")).hexdigest()
+                prod.id = prod_id  # assign generated uid to Product
+
+            if prod_id not in self.products:
+                self.products[prod_id] = prod
                 new += 1
         return new
 
