@@ -2,6 +2,8 @@ import asyncio
 from typing import Optional, List, Dict, Any
 from playwright.async_api import async_playwright
 import os
+import shutil
+import tempfile
 
 from app.agents.ride_booking.config import Config
 from app.agents.ride_booking.llm.assistant import LLMAssistant
@@ -20,6 +22,7 @@ class RapidoAutomation:
         self.browser = None
         self.context = None
         self.page = None
+        self.temp_user_data_dir = None # To hold the path of the temporary directory
 
         self.status: str = "initializing"
         self.message: Optional[str] = None
@@ -34,9 +37,22 @@ class RapidoAutomation:
         """Initializes Playwright, launches the browser, and handles login if necessary."""
         sessions_dir = self.config.SESSIONS_DIR
         os.makedirs(sessions_dir, exist_ok=True)
-        user_data_dir = os.path.join(sessions_dir, f"rapido_profile_{session_name}") if session_name else None
+        
+        original_user_data_dir = os.path.join(sessions_dir, f"rapido_profile_{session_name}") if session_name else None
+        is_existing_session = os.path.exists(original_user_data_dir) if original_user_data_dir else False
 
-        self._update_status("running", "Initializing browser for Rapido.")
+        # --- Use a temporary copy of the session to avoid modifying the original ---
+        if is_existing_session:
+            # Create a temporary directory and copy the original profile into it.
+            self.temp_user_data_dir = tempfile.mkdtemp()
+            user_data_dir = os.path.join(self.temp_user_data_dir, f"rapido_profile_{session_name}")
+            self.logger.info(f"Copying existing session '{original_user_data_dir}' to temporary location '{user_data_dir}' for this run.")
+            shutil.copytree(original_user_data_dir, user_data_dir)
+        else:
+            # If no session exists, we will create it in the original directory.
+            user_data_dir = original_user_data_dir
+
+        self._update_status("running", "Initializing browser with persistent context for Rapido.")
         self.playwright = await async_playwright().start()
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
@@ -97,4 +113,10 @@ class RapidoAutomation:
             await self.context.close()
         if self.playwright:
             await self.playwright.stop()
+
+        # --- Clean up the temporary session directory if it was used ---
+        if self.temp_user_data_dir and os.path.exists(self.temp_user_data_dir):
+            self.logger.info(f"Removing temporary session directory: {self.temp_user_data_dir}")
+            shutil.rmtree(self.temp_user_data_dir)
+
         self.logger.info("✅ Rapido automation finished.")
