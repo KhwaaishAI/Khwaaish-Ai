@@ -106,11 +106,17 @@ class UberSteps:
             otp_prompt_locator = self.automation.page.locator("text=/Enter the 4-digit code sent to/")
             login_with_email_button = self.automation.page.locator('button[data-testid="Login with email"][data-baseweb="button"]')
 
+            # For Python 3.11+ compatibility, asyncio.wait() requires explicit Task objects.
+            tasks = [
+                asyncio.create_task(otp_prompt_locator.wait_for(state="visible", timeout=self.config.TIMEOUT)),
+                asyncio.create_task(login_with_email_button.wait_for(state="visible", timeout=self.config.TIMEOUT))
+            ]
+
             # Wait for either the OTP prompt or the "Login with email" button to appear.
-            await asyncio.wait([
-                otp_prompt_locator.wait_for(state="visible", timeout=self.config.TIMEOUT),
-                login_with_email_button.wait_for(state="visible", timeout=self.config.TIMEOUT)
-            ], return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+            for task in pending:
+                task.cancel() # Clean up the task that didn't complete.
 
             # If the "Login with email" button is visible, it means we're on the password screen.
             if await login_with_email_button.is_visible():
