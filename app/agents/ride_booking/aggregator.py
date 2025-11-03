@@ -3,7 +3,7 @@ import sys
 import os
 
 # --- Setup Project Path ---
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.insert(0, project_root)
 
 from app.agents.ride_booking.ola.core import OlaAutomation
