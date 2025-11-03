@@ -85,8 +85,8 @@ class UberAutomation:
     async def search_rides(self, pickup_location: str, destination_location: str) -> List[Dict[str, Any]]:
         """Enters locations, searches for rides, and returns the extracted data."""
         self._update_status("running", "Entering ride details.")
-        await self.steps.click_ride_link_after_login()
-        await asyncio.sleep(5)
+        # await self.steps.click_ride_link_after_login()
+        # await asyncio.sleep(5)
         await self.steps.enter_pickup_location(pickup_location)
         await asyncio.sleep(5)
         await self.steps.enter_destination_location(destination_location)
