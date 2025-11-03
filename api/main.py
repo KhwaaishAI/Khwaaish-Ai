@@ -26,5 +26,5 @@ app.add_middleware(
 # -------------------------------------------------
 # Routers
 # -------------------------------------------------
-app.include_router(Flipkart_API_main.router, prefix="/flipkart_automation", tags=["Flipkart-Automation"])
+# app.include_router(Flipkart_API_main.router, prefix="/flipkart_automation", tags=["Flipkart-Automation"])
 app.include_router(amazon_api_main.router, prefix="/amazon_aitomation", tags=["Amazon-Automation"])

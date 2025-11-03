@@ -148,7 +148,6 @@ async def login_start(req: LoginStartRequest):
             del live_otp_sessions[phone]
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-
 @router.post("/login/verify")
 async def login_verify(req: LoginVerifyRequest):
     """
