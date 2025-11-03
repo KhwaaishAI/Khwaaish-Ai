@@ -9,8 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from app.tools.Amazon_tools.search import AmazonScraper
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, expect
-
-logger = logging.getLogger(__name__)
+from app.agents.flipkart.utills.logger import setup_logger
+logger = setup_logger("amazon")
 
 
 @dataclass

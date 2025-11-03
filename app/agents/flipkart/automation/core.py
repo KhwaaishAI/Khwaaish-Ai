@@ -9,7 +9,7 @@ import json
 class FlipkartAutomation:
     def __init__(self):
         self.config = Config()
-        self.logger = setup_logger()
+        self.logger = setup_logger("flipkart-automation")
         self.session_store_path = ".flipkart_session.json"
         self.playwright = None
         self.browser = None
