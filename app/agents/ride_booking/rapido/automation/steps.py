@@ -115,40 +115,42 @@ class RapidoSteps:
     async def check_and_handle_login(self):
         """Checks if a login screen is present and pauses for manual user login if needed."""
         self.logger.info("Checking if login is required...")
-        try:
-            # --- NEW: Handle intermittent 'Continue Booking' button ---
-            continue_booking_button = self.automation.page.locator('button.next-button:has-text("Continue Booking")')
-            try:
-                # Use a short timeout to check if this button exists
-                self.logger.info("Checking for an intermediate 'Continue Booking' button...")
-                await continue_booking_button.wait_for(state="visible", timeout=5000)
-                self.logger.info("'Continue Booking' button found. Clicking it to proceed to login.")
-                await continue_booking_button.click()
-                await asyncio.sleep(3) # Wait for the login screen to appear after the click
-            except Exception:
-                # If the button is not found, it's not an error. We just proceed.
-                self.logger.info("'Continue Booking' button not found. Proceeding with direct login check.")
 
-            # --- Original Login Check Logic ---
-            login_input_locator = self.automation.page.locator("input.mobile-input.phone-number")
-            # Use a short timeout to see if the login screen is present.
-            await login_input_locator.wait_for(state="visible", timeout=10000)
+        async def _wait_for_manual_login():
+            """Internal function to pause and wait for the user to log in."""
             self.logger.info("Login screen detected. Pausing for manual user login.")
-
-            # --- Pause for manual login ---
             print("\n" + "="*60)
             print("ACTION REQUIRED: Please complete the Rapido login in the browser.")
             print("The script will wait until you are successfully logged in.")
             print("="*60 + "\n")
-
             welcome_locator = self.automation.page.locator('div.main-heading:has-text("Welcome to Rapido!")').first
             await welcome_locator.wait_for(state="visible", timeout=0) # Wait forever
             self.logger.info("✅ Login confirmed. Welcome message is visible. Resuming automation.")
-            return True # Indicate that login was performed.
 
-        except Exception: 
-            self.logger.info("Login screen not found. Assuming user is already logged in.")
-            return False
+        # --- Handle intermittent 'Continue Booking' button ---
+        continue_booking_button = self.automation.page.locator('button.next-button:has-text("Continue Booking")')
+        try:
+            self.logger.info("Checking for an intermediate 'Continue Booking' button...")
+            await continue_booking_button.wait_for(state="visible", timeout=5000)
+            self.logger.info("'Continue Booking' button found. Clicking it to proceed to login.")
+            await continue_booking_button.click()
+            await asyncio.sleep(3) # Wait for the login screen to appear after the click
+            
+            # After clicking, we MUST wait for login.
+            await _wait_for_manual_login()
+            return True
+
+        except Exception:
+            self.logger.info("'Continue Booking' button not found. Proceeding with direct login check.")
+            # --- If 'Continue Booking' was not found, check for the login input directly ---
+            login_input_locator = self.automation.page.locator("input.mobile-input.phone-number")
+            try:
+                await login_input_locator.wait_for(state="visible", timeout=10000)
+                await _wait_for_manual_login()
+                return True
+            except Exception:
+                self.logger.info("Login screen not found. Assuming user is already logged in.")
+                return False
 
     async def enter_location_after_login(self, location: str):
         """Enters the location on the screen that appears after login."""
