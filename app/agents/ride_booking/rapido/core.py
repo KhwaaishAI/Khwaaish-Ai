@@ -72,21 +72,35 @@ class RapidoAutomation:
             await self.steps.check_and_handle_login()
             await asyncio.sleep(5)
 
-        # --- Intelligent Check: Decide whether to re-enter location or scrape rides ---
+        # --- NEW: Robustly determine the page state after login/reload ---
+        self.logger.info("Determining page state: checking for ride list or location re-entry form.")
         post_login_pickup_input = self.page.locator('input[placeholder="Enter pickup location here"]')
-        try:
-            # Check if the post-login location entry screen is visible with a short timeout
-            self.logger.info("Checking if location needs to be re-entered post-login...")
-            await post_login_pickup_input.wait_for(state="visible", timeout=5000)
-            self.logger.info("Post-login location entry screen detected. Re-entering locations.")
-            await self.steps.enter_location_after_login(pickup_location)
-            await asyncio.sleep(3)
-            await self.steps.enter_drop_location_after_login(destination_location)
-            await asyncio.sleep(4)
-        except Exception:
-            # If the locator is not found, it means we are likely already on the ride options page.
-            self.logger.info("Post-login location entry screen not found. Proceeding directly to ride extraction.")
+        ride_list_locator = self.page.locator("div.fare-estimate-wrapper").first
 
+        try:
+            # Wait for either the ride list or the location input to appear.
+            await asyncio.wait_for(
+                asyncio.wait(
+                    [
+                        asyncio.create_task(post_login_pickup_input.wait_for(state="visible")),
+                        asyncio.create_task(ride_list_locator.wait_for(state="visible")),
+                    ],
+                    return_when=asyncio.FIRST_COMPLETED,
+                ),
+                timeout=15.0, # Overall timeout for the check
+            )
+
+            if await post_login_pickup_input.is_visible():
+                self.logger.info("Post-login location entry screen detected. Re-entering locations.")
+                await self.steps.enter_location_after_login(pickup_location)
+                await asyncio.sleep(3)
+                await self.steps.enter_drop_location_after_login(destination_location)
+                await asyncio.sleep(4)
+            elif await ride_list_locator.is_visible():
+                self.logger.info("Ride list is already visible. Proceeding directly to ride extraction.")
+        except asyncio.TimeoutError:
+            self.logger.error("Neither the ride list nor the location re-entry form appeared in time. Extraction will likely fail.")
+            # The script will proceed to extract_rides, which will then handle the timeout gracefully.
 
         self.ride_data = await self.steps.extract_rides()
         return self.ride_data
