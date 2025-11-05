@@ -116,6 +116,20 @@ class RapidoSteps:
         """Checks if a login screen is present and pauses for manual user login if needed."""
         self.logger.info("Checking if login is required...")
         try:
+            # --- NEW: Handle intermittent 'Continue Booking' button ---
+            continue_booking_button = self.automation.page.locator('button.next-button:has-text("Continue Booking")')
+            try:
+                # Use a short timeout to check if this button exists
+                self.logger.info("Checking for an intermediate 'Continue Booking' button...")
+                await continue_booking_button.wait_for(state="visible", timeout=5000)
+                self.logger.info("'Continue Booking' button found. Clicking it to proceed to login.")
+                await continue_booking_button.click()
+                await asyncio.sleep(3) # Wait for the login screen to appear after the click
+            except Exception:
+                # If the button is not found, it's not an error. We just proceed.
+                self.logger.info("'Continue Booking' button not found. Proceeding with direct login check.")
+
+            # --- Original Login Check Logic ---
             login_input_locator = self.automation.page.locator("input.mobile-input.phone-number")
             # Use a short timeout to see if the login screen is present.
             await login_input_locator.wait_for(state="visible", timeout=10000)
