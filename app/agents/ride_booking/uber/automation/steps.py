@@ -152,6 +152,29 @@ class UberSteps:
             self.logger.error(f"Failed to enter OTP code: {e}", exc_info=True)
             raise
 
+    async def handle_new_user_name_entry(self):
+        """Handles the screen asking for a new user's first and last name."""
+        self.logger.info("New user screen detected. Prompting for first and last name.")
+        try:
+            first_name_input = self.automation.page.locator('input#FIRST_NAME')
+            last_name_input = self.automation.page.locator('input#LAST_NAME')
+
+            await first_name_input.wait_for(state="visible", timeout=self.config.TIMEOUT)
+
+            first_name = input("Please enter your first name: ")
+            last_name = input("Please enter your last name: ")
+
+            await first_name_input.fill(first_name)
+            await last_name_input.fill(last_name)
+            self.logger.info("Successfully entered first and last name.")
+
+            # Click the 'Continue' or 'Next' button to proceed
+            await self.automation.page.get_by_test_id("forward-button").click()
+            self.logger.info("Clicked the 'Continue' (forward) button after entering name.")
+        except Exception as e:
+            self.logger.error(f"Failed to handle new user name entry: {e}", exc_info=True)
+            raise
+
     async def click_ride_link_after_login(self):
         """After successful login/OTP, clicks the 'Ride' link to go to the booking page."""
         self.logger.info("Looking for the 'Ride' link to proceed to booking.")

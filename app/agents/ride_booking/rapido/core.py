@@ -2,8 +2,6 @@ import asyncio
 from typing import Optional, List, Dict, Any
 from playwright.async_api import async_playwright
 import os
-import shutil
-import tempfile
 
 from app.agents.ride_booking.config import Config
 from app.agents.ride_booking.llm.assistant import LLMAssistant
@@ -15,18 +13,18 @@ from app.agents.ride_booking.rapido.automation.steps import RapidoSteps
 class RapidoAutomation:
     def __init__(self):
         self.config = Config()
-        self.logger = setup_logger()
+        self.logger = setup_logger("rapido-automation")
         self.llm = LLMAssistant(self.config, self.logger)
 
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
-        self.temp_user_data_dir = None # To hold the path of the temporary directory
 
         self.status: str = "initializing"
         self.message: Optional[str] = None
         self.ride_data: Optional[List[Dict[str, Any]]] = None
+        self.is_existing_session: bool = False
 
     def _update_status(self, status: str, message: Optional[str] = None):
         self.status = status
@@ -37,30 +35,27 @@ class RapidoAutomation:
         """Initializes Playwright, launches the browser, and handles login if necessary."""
         sessions_dir = self.config.SESSIONS_DIR
         os.makedirs(sessions_dir, exist_ok=True)
-        
-        original_user_data_dir = os.path.join(sessions_dir, f"rapido_profile_{session_name}") if session_name else None
-        is_existing_session = os.path.exists(original_user_data_dir) if original_user_data_dir else False
 
-        # --- Use a temporary copy of the session to avoid modifying the original ---
-        if is_existing_session:
-            # Create a temporary directory and copy the original profile into it.
-            self.temp_user_data_dir = tempfile.mkdtemp()
-            user_data_dir = os.path.join(self.temp_user_data_dir, f"rapido_profile_{session_name}")
-            self.logger.info(f"Copying existing session '{original_user_data_dir}' to temporary location '{user_data_dir}' for this run.")
-            shutil.copytree(original_user_data_dir, user_data_dir)
-        else:
-            # If no session exists, we will create it in the original directory.
-            user_data_dir = original_user_data_dir
+        user_data_dir = os.path.join(sessions_dir, f"rapido_profile_{session_name}") if session_name else None
+        self.is_existing_session = os.path.exists(user_data_dir) if user_data_dir else False
 
         self._update_status("running", "Initializing browser with persistent context for Rapido.")
+
         self.playwright = await async_playwright().start()
+
+        launch_options = {
+            "headless": self.config.HEADLESS,
+            "slow_mo": self.config.SLOW_MO,
+        }
+        if hasattr(self.config, "PROXY") and self.config.PROXY:
+            launch_options["proxy"] = {"server": self.config.PROXY}
+            self.logger.info(f"Using proxy server: {self.config.PROXY}")
+
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
-            headless=self.config.HEADLESS,
-            slow_mo=self.config.SLOW_MO,
-            locale='en-IN',
-            timezone_id='Asia/Kolkata',
+            **launch_options
         )
+
         self.page = await self.context.new_page()
         self.steps = RapidoSteps(self)
         await self.steps.navigate_to_rapido()
@@ -72,19 +67,25 @@ class RapidoAutomation:
         await self.steps.enter_destination_location(destination_location)
         await self.steps.click_search_button()
         await asyncio.sleep(5)
-
-
-        # After attempting to search, check if a login is required.
-        await self.steps.check_and_handle_login()
-        await asyncio.sleep(5)
-
-        # After login, a new location prompt appears. We re-enter the pickup location.
-        self.logger.info("Handling post-login location entry.")
-        await self.steps.enter_location_after_login(pickup_location)
-        await asyncio.sleep(3)
-        await self.steps.enter_drop_location_after_login(destination_location)
-        await asyncio.sleep(4)
         
+        if not self.is_existing_session:
+            await self.steps.check_and_handle_login()
+            await asyncio.sleep(5)
+
+        # --- Intelligent Check: Decide whether to re-enter location or scrape rides ---
+        post_login_pickup_input = self.page.locator('input[placeholder="Enter pickup location here"]')
+        try:
+            # Check if the post-login location entry screen is visible with a short timeout
+            self.logger.info("Checking if location needs to be re-entered post-login...")
+            await post_login_pickup_input.wait_for(state="visible", timeout=5000)
+            self.logger.info("Post-login location entry screen detected. Re-entering locations.")
+            await self.steps.enter_location_after_login(pickup_location)
+            await asyncio.sleep(3)
+            await self.steps.enter_drop_location_after_login(destination_location)
+            await asyncio.sleep(4)
+        except Exception:
+            # If the locator is not found, it means we are likely already on the ride options page.
+            self.logger.info("Post-login location entry screen not found. Proceeding directly to ride extraction.")
 
 
         self.ride_data = await self.steps.extract_rides()
@@ -113,10 +114,5 @@ class RapidoAutomation:
             await self.context.close()
         if self.playwright:
             await self.playwright.stop()
-
-        # --- Clean up the temporary session directory if it was used ---
-        if self.temp_user_data_dir and os.path.exists(self.temp_user_data_dir):
-            self.logger.info(f"Removing temporary session directory: {self.temp_user_data_dir}")
-            shutil.rmtree(self.temp_user_data_dir)
 
         self.logger.info("✅ Rapido automation finished.")
