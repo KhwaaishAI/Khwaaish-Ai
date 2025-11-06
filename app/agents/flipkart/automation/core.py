@@ -10,7 +10,7 @@ class FlipkartAutomation:
     def __init__(self):
         self.config = Config()
         self.logger = setup_logger()
-        self.session_store_path = ".flipkart_session.json"
+        self.session_store_path = "sessions/.flipkart_session.json"
         
         # --- FIX ---
         # Initialize attributes from the config object.
@@ -39,7 +39,7 @@ class FlipkartAutomation:
         """Initialize Playwright browser and context."""
         self.logger.info("Initializing Playwright browser...")
         
-        self.playwright = await async_playwright().start() # Changed from playwright = ...
+        self.playwright = await async_playwright().start()
         
         browser_kwargs = {
             'headless': False,
@@ -49,21 +49,17 @@ class FlipkartAutomation:
             ]
         }
         
-        # if self.proxy:
-        #     browser_kwargs['proxy'] = {'server': self.proxy}
-        
         self.browser = await self.playwright.chromium.launch(**browser_kwargs)
         
         context_kwargs = {
             'viewport': {'width': 1280, 'height': 720},
         }
         
-        # This check will also work correctly
         if self.user_agent:
             context_kwargs['user_agent'] = self.user_agent
         
-        # Load existing session if available
-        if Path(self.session_store_path).exists():
+        # Load session if session_store_path is set and file exists
+        if self.session_store_path and Path(self.session_store_path).exists():
             try:
                 with open(self.session_store_path, 'r') as f:
                     context_kwargs['storage_state'] = json.load(f)
@@ -74,12 +70,7 @@ class FlipkartAutomation:
         self.context = await self.browser.new_context(**context_kwargs)
         self.page = await self.context.new_page()
         
-        # # Set default timeout
-        # self.page.set_default_timeout(self.timeout)
-        
         self.logger.info("Browser initialized successfully")
-        # --- FIX for main.py logic ---
-        # The main.py file checks the return value, so we should return True on success.
         return True
 
     async def close_browser(self):
@@ -105,3 +96,5 @@ class FlipkartAutomation:
         # --- END FIX ---
             
         self.logger.info("Browser closed")
+
+   

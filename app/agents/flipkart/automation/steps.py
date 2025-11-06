@@ -28,11 +28,30 @@ class FlipkartSteps:
             "add_to_cart": ["button:has-text('Add to Cart')", "button:has-text('ADD TO CART')", "[data-qa='add-to-cart']"],
             "buy_now": ["button:has-text('Buy Now')", "button:has-text('BUY NOW')"],
             "cart_icon": ["._3SkBxJ", "[href*='viewcart']", "a[href*='cart']"],
-            "place_order": ["text=Place Order", "button:has-text('Place Order')"],
-            "login": ["button:has-text('Login')", "text=Login"],
-            "phone_input":["input[autocomplete='off']","input.r4vIwl.Jr-g+f","input[type='tel']","#container > div > div.VCR99n > div > div.Sm1-5F.col.col-3-5 > div > form > div.I-qZ4M.vLRlQb > input"],
-            "continue_btn": ["button._2KpZ6l._2HKlqd", "button[type='submit']", "button:has-text('Continue')"],
-            "otp_input": ["input.r4vIwl.zgwPDa.Jr-g+f", "input[type='text'][maxlength='6']", "input[placeholder*='OTP']"],
+                "login": [
+                        "button:has-text('Login')",
+                        "text=Login",
+                    ],
+             "phone_input": [
+                        "#container form input.r4vIwl.BV+Dqf[type='text'][autocomplete='off']",
+                        "#container div.Sm1-5F.col.col-3-5 form input[type='text']",
+                        "#container input.r4vIwl.BV+Dqf",
+                    ],
+                "continue_btn": [
+                        "#container > div > div.VCR99n > div > div.Sm1-5F.col.col-3-5 > div > form > div.LSOAQH > button",
+                        "button:has-text('Request OTP')",
+                        "button[type='submit']"
+                    ],
+                    "otp_input": [
+                        "div.XDRRi5 input.r4vIwl.IX3CMV",
+                        "input[type='text'][maxlength='1']",
+                        "input[autocomplete='off'].IX3CMV"
+                    ],
+                    "verify_otp_btn": [
+                        "#container > div > div.VCR99n > div > div.Sm1-5F.col.col-3-5 > div > div > form > button",
+                        "button:has-text('Verify OTP')",
+                        "button[type='submit']"
+                    ],
             "pincode_input": ["#pincodeInputId", "input[placeholder*='Pincode']", "._2JC05C"],
             "check_btn": ["button:has-text('Check')", "button:has-text('Check Delivery')"]
         }
@@ -100,35 +119,128 @@ class FlipkartSteps:
         self.logger.info("✅ OTP requested, page is waiting for input.")
         return "✅ OTP requested, page is waiting for input."
 
+    # async def login_submit_otp(self, otp: str) -> bool:
+    #     """
+    #     API-friendly function: Submits the OTP to complete login.
+    #     Called by /login/verify.
+    #     """
+    #     self.logger.info("🔐 Submitting OTP...")
+
+    #     # Fill OTP
+    #     if not await self._fill_input(otp, self.selectors["otp_input"]):
+    #         self.logger.error("❌ OTP input not found")
+    #         return False
+    #     self.logger.info("✅ OTP entered")
+
+    #     # Click signup/login button
+    #     await asyncio.sleep(1)
+    #     if not await self._find_element(self.selectors["continue_btn"], timeout=5000, click=True):
+    #          self.logger.error("❌ Login/Verify button not found")
+    #          return False
+        
+    #     await self.page.wait_for_load_state('networkidle')
+        
+    #     # You should add a check here to confirm login was successful
+    #     # e.g., check for "My Account" element
+
+    #     self.user_data['logged_in'] = True
+    #     self.user_data['login_timestamp'] = time.time()
+    #     self._save_user_session()
+    #     self.logger.info("✅ Login successful")
+    #     return "✅ Login successful"
+
+
+    import time
+    import asyncio
+    from typing import List
+
     async def login_submit_otp(self, otp: str) -> bool:
         """
-        API-friendly function: Submits the OTP to complete login.
+        API-friendly function: Submits the OTP (6 digits, one per input box).
         Called by /login/verify.
         """
         self.logger.info("🔐 Submitting OTP...")
 
-        # Fill OTP
-        if not await self._fill_input(otp, self.selectors["otp_input"]):
-            self.logger.error("❌ OTP input not found")
+        # Validate OTP shape quickly
+        if not otp or len(otp) != 6 or not otp.isdigit():
+            self.logger.error("❌ OTP must be a 6-digit numeric string")
             return False
-        self.logger.info("✅ OTP entered")
 
-        # Click signup/login button
-        await asyncio.sleep(1)
-        if not await self._find_element(self.selectors["continue_btn"], timeout=5000, click=True):
-             self.logger.error("❌ Login/Verify button not found")
-             return False
-        
-        await self.page.wait_for_load_state('networkidle')
-        
-        # You should add a check here to confirm login was successful
-        # e.g., check for "My Account" element
+        otp_selector = self.selectors["otp_input"][0]  # prefer the most specific one
+        try:
+            # Wait for OTP container/inputs to appear
+            await self.page.wait_for_selector(otp_selector, timeout=7000)
+        except Exception as e:
+            self.logger.error(f"❌ OTP inputs did not appear: {e}")
+            return False
 
-        self.user_data['logged_in'] = True
-        self.user_data['login_timestamp'] = time.time()
-        self._save_user_session()
-        self.logger.info("✅ Login successful")
-        return "✅ Login successful"
+        try:
+            # Use locator to get count and fill each input
+            locator = self.page.locator(otp_selector)
+            count = await locator.count()
+            if count < 6:
+                self.logger.warning(f"Expected 6 OTP inputs but found {count}")
+                # still attempt to proceed - but safer to fail
+                return False
+
+            digits: List[str] = list(otp)
+            for i, d in enumerate(digits):
+                input_loc = locator.nth(i)
+                # Focus + fill each input with short retries in case of flaky focus
+                attempt = 0
+                while attempt < 3:
+                    try:
+                        await input_loc.click()          # ensure focus
+                        # prefer fill (replaces any placeholder) — use type if page intercepts key events
+                        await input_loc.fill(d)
+                        # small pause to allow any focus-move handlers to run
+                        await asyncio.sleep(0.08)
+                        # verify value
+                        # read back value via evaluate on the element handle
+                        value = await input_loc.input_value()
+                        if value.strip() == d:
+                            break
+                        else:
+                            self.logger.debug(f"OTP digit {i} not set yet (value={value}), retrying")
+                    except Exception as ie:
+                        self.logger.debug(f"Attempt {attempt+1} failed for OTP digit {i}: {ie}")
+                    attempt += 1
+                else:
+                    # if we exhausted retries
+                    self.logger.error(f"❌ Failed to set digit {i+1} of OTP to '{d}' after retries")
+                    return False
+
+            self.logger.info("✅ OTP digits entered successfully")
+
+        except Exception as e:
+            self.logger.exception(f"❌ Error while entering OTP digits: {e}")
+            return False
+
+        # Click verify / submit
+        try:
+            # Use your helper to click verify; adjust selector index if needed
+            if not await self._find_element(self.selectors["verify_otp_btn"], timeout=5000, click=True):
+                self.logger.error("❌ Verify/Submit button not found")
+                return False
+
+            # Wait for navigation/network idle or a known post-login selector
+            await self.page.wait_for_load_state("networkidle")
+            # optional: check for an element that indicates success (My Account / profile icon)
+            current_url = await self.page.goto("https://www.flipkart.com/account/?rd=0&link=home_account", wait_until="networkidle")
+            if "login" in current_url.lower():
+                return False
+            self.user_data['logged_in'] = True
+            self.user_data['login_timestamp'] = time.time()
+            self._save_user_session()
+            self.logger.info("✅ Login successful")
+            return True
+
+        except Exception as e:
+            self.logger.exception(f"❌ Error after submitting OTP: {e}")
+            return False
+
+
+
 
     async def _login_with_phone(self, phone:Optional[int], use_session:bool):
         """
@@ -427,21 +539,17 @@ class FlipkartSteps:
         if 'cart' not in self.page.url.lower():
             await self._go_to_cart()
         
-        if 'login' in self.page.url.lower() or await self._check_login_required():
-            self.logger.info("🔐 Login required")
-            use_session = os.path.exists("user_shipping_session.json")
-            await self._login_with_phone(phone=None, use_session=use_session) # Fixed: added phone=None
-
+        self.logger.info("Placing order")
         if not await self._find_element(self.selectors["place_order"], click=True):
             self.logger.error("❌ Could not click Place Order")
-            input("Press Enter after manual click: ")
+            self.logger.input("Press Enter after manual click: ")
 
         await asyncio.sleep(2)
         
         if 'login' in self.page.url.lower() or await self._check_login_required():
             self.logger.info("🔐 Login required")
             use_session = os.path.exists("user_shipping_session.json")
-            await self._login_with_phone(phone=None, use_session=use_session) # Fixed: added phone=None
+            # await self._login_with_phone(phone=None, use_session=use_session) # Fixed: added phone=None
         else:
             self.logger.info("✅ Already logged in")
 
@@ -495,4 +603,4 @@ class FlipkartSteps:
         # if await self._find_element(payment_selectors, 10000, click=True):
         self.logger.info("🎯 Ready for manual payment...")
         print("💳 Complete payment manually. Browser will stay open for 10 minutes...")
-        await asyncio.sleep(60)
+        await asyncio.sleep(600)

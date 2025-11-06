@@ -36,12 +36,12 @@ app.add_middleware(
 # -------------------------------------------------
 # Routers
 # -------------------------------------------------
-# app.include_router(Flipkart_API_main.router, prefix="/flipkart_automation", tags=["Flipkart_Automation"])
+app.include_router(Flipkart_API_main.router, prefix="/flipkart_automation", tags=["Flipkart_Automation"])
 app.include_router(amazon_api_main.router, prefix="/amazon_aitomation", tags=["Amazon_Automation"])
 app.include_router(api.router, prefix="/ride-booking", tags=["ride-booking"])
 app.include_router(blinkit_router, prefix="/api", tags=["blinkit"])
 app.include_router(zepto_router, prefix="/api", tags=["zepto"])
 app.include_router(swiggy_router, prefix="/api", tags=["swiggy"])
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+# if __name__ == "__main__":
+#     uvicorn.run(app, host="127.0.0.1", port=8001)
