@@ -4,6 +4,8 @@ import asyncio
 import traceback
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import os
+import shutil
 from typing import Dict, Any, List, Optional
 import re
 from fastapi import APIRouter
@@ -12,6 +14,7 @@ from fastapi import APIRouter
 from app.agents.ride_booking.uber.core import UberAutomation
 from app.agents.ride_booking.rapido.core import RapidoAutomation
 from app.agents.ride_booking.utills.logger import setup_logger
+from app.agents.ride_booking.config import Config
 
 # --- Pydantic Models for API Request/Response ---
 
@@ -19,9 +22,8 @@ class RideSearchRequest(BaseModel):
     """Defines the data needed to perform a ride search."""
     pickup_location: str
     destination_location: str
-    # ola_session_name: str
-    uber_session_name: str
-    rapido_session_name: str
+    start_from_login: bool = False
+    
 
 class Ride(BaseModel):
     """A structured model for a single ride option."""
@@ -106,18 +108,34 @@ async def search_for_rides(request: RideSearchRequest):
     """
     job_id = str(uuid.uuid4())
     logger.info(f"Creating new job with ID: {job_id}")
-
-    # ola_automation = OlaAutomation()
+    
+    # --- New Session Logic ---
+    # We will use a fixed default session name internally.
+    default_session_name = "default_session"
+    
     uber_automation = UberAutomation()
     rapido_automation = RapidoAutomation()
 
+    if request.start_from_login:
+        logger.info(f"Job {job_id}: 'start_from_login' is true. Deleting old default session data to force a new login.")
+        config = Config()
+        uber_session_path = os.path.join(config.SESSIONS_DIR, f"uber_profile_{default_session_name}")
+        rapido_session_path = os.path.join(config.SESSIONS_DIR, f"rapido_profile_{default_session_name}")
+        
+        if os.path.exists(uber_session_path):
+            shutil.rmtree(uber_session_path)
+            logger.info(f"Removed old Uber session: {uber_session_path}")
+        if os.path.exists(rapido_session_path):
+            shutil.rmtree(rapido_session_path)
+            logger.info(f"Removed old Rapido session: {rapido_session_path}")
+    else:
+        logger.info(f"Job {job_id}: 'start_from_login' is false. Using default saved session.")
     try:
         # --- 1. Initialize Browsers ---
         logger.info(f"Job {job_id}: Initializing browsers and sessions...")
         await asyncio.gather(
-            # ola_automation.initialize(request.ola_session_name),
-            uber_automation.initialize(request.uber_session_name),
-            rapido_automation.initialize(request.rapido_session_name)
+            uber_automation.initialize(default_session_name),
+            rapido_automation.initialize(default_session_name)
         )
         logger.info(f"Job {job_id}: Browsers are ready.")
 

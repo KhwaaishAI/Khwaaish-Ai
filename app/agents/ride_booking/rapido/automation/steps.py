@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import random
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Dict, Any
 
@@ -81,8 +82,32 @@ class RapidoSteps:
             await book_ride_button.wait_for(state="visible", timeout=self.config.TIMEOUT)
             await book_ride_button.click()
             self.logger.info("Successfully clicked the 'Book Ride' button.")
-            await asyncio.sleep(4)
+
+            await asyncio.sleep(10)
+            self.logger.info("Reloading page after initial wait.")
             await self.automation.page.reload(wait_until="networkidle", timeout=self.config.TIMEOUT)
+
+            # --- Check for security verification failure and reload if necessary ---
+            await asyncio.sleep(5)
+            error_locator = self.automation.page.locator('div.error:has-text("Failed to load security verification. Please refresh the page.")')
+            is_error_visible = await error_locator.is_visible(timeout=5000)
+            if is_error_visible:
+                self.logger.warning("Security verification error detected. Reloading page again.")
+                await self.automation.page.reload(wait_until="networkidle", timeout=self.config.TIMEOUT)
+                self.logger.info("Page reloaded after security error.")
+
+                # --- Add a final check to ensure the login page loaded after the reload ---
+                try:
+                    self.logger.info("Verifying that the login page has loaded correctly...")
+                    login_input_locator = self.automation.page.locator("input.mobile-input.phone-number")
+                    await login_input_locator.wait_for(state="visible", timeout=10000)
+                except Exception:
+                    self.logger.warning("Login page did not load after security error reload. Attempting one final reload.")
+                    await self.automation.page.reload(wait_until="networkidle", timeout=self.config.TIMEOUT)
+            else:
+                # Use a short timeout to quickly check if the error message is present.
+                # If the locator times out, it means the error is not present, and we can continue.
+                self.logger.info("No security verification error found. Proceeding.")
         except Exception as e:
             self.logger.error(f"Failed to click the 'Book Ride' button: {e}", exc_info=True)
             raise
@@ -90,18 +115,42 @@ class RapidoSteps:
     async def check_and_handle_login(self):
         """Checks if a login screen is present and pauses for manual user login if needed."""
         self.logger.info("Checking if login is required...")
+
+        async def _wait_for_manual_login():
+            """Internal function to pause and wait for the user to log in."""
+            self.logger.info("Login screen detected. Pausing for manual user login.")
+            print("\n" + "="*60)
+            print("ACTION REQUIRED: Please complete the Rapido login in the browser.")
+            print("The script will wait until you are successfully logged in.")
+            print("="*60 + "\n")
+            welcome_locator = self.automation.page.locator('div.main-heading:has-text("Welcome to Rapido!")').first
+            await welcome_locator.wait_for(state="visible", timeout=0) # Wait forever
+            self.logger.info("✅ Login confirmed. Welcome message is visible. Resuming automation.")
+
+        # --- Handle intermittent 'Continue Booking' button ---
+        continue_booking_button = self.automation.page.locator('button.next-button:has-text("Continue Booking")')
         try:
-            login_input_locator = self.automation.page.locator("input.mobile-input.phone-number")
-            await login_input_locator.wait_for(state="visible", timeout=5000)
-            self.logger.info("located the phone number input now waiting for login to complete and welcome message to appear...")
-        except Exception: 
-            self.logger.info("phone number input not found. Assuming user is already logged in.")
-            return False
+            self.logger.info("Checking for an intermediate 'Continue Booking' button...")
+            await continue_booking_button.wait_for(state="visible", timeout=5000)
+            self.logger.info("'Continue Booking' button found. Clicking it to proceed to login.")
+            await continue_booking_button.click()
+            await asyncio.sleep(3) # Wait for the login screen to appear after the click
             
-        
-        welcome_locator = self.automation.page.locator('div.main-heading:has-text("Welcome to Rapido!")')
-        await welcome_locator.wait_for(state="visible", timeout=0)
-        self.logger.info("✅ Login confirmed. Welcome message is visible.")
+            # After clicking, we MUST wait for login.
+            await _wait_for_manual_login()
+            return True
+
+        except Exception:
+            self.logger.info("'Continue Booking' button not found. Proceeding with direct login check.")
+            # --- If 'Continue Booking' was not found, check for the login input directly ---
+            login_input_locator = self.automation.page.locator("input.mobile-input.phone-number")
+            try:
+                await login_input_locator.wait_for(state="visible", timeout=10000)
+                await _wait_for_manual_login()
+                return True
+            except Exception:
+                self.logger.info("Login screen not found. Assuming user is already logged in.")
+                return False
 
     async def enter_location_after_login(self, location: str):
         """Enters the location on the screen that appears after login."""

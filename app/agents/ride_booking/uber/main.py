@@ -2,6 +2,8 @@ import asyncio
 import sys
 import os
 
+import uuid
+import shutil
 # Add project root to Python's path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
@@ -16,12 +18,25 @@ async def main():
     sessions_dir = config.SESSIONS_DIR
     os.makedirs(sessions_dir, exist_ok=True)
     
-    # Use the common utility to select a session
-    session_name = select_session(
-        sessions_dir=sessions_dir,
-        platform_name="Uber",
-        profile_prefix="uber_profile_"
-    )
+    session_name = None
+    start_fresh_input = input("Start with a fresh login? (yes/no) [default: no]: ").lower().strip()
+    
+    if start_fresh_input == 'yes':
+        # Generate a random name for the new session.
+        session_name = str(uuid.uuid4().hex[:8])
+        print(f"Starting a fresh login. The new session will be saved as '{session_name}'.")
+        # No need to delete anything, as it's a new session name.
+    else:
+        # List existing sessions for the user to choose from.
+        print("Using an existing session.")
+        session_name = select_session(
+            sessions_dir=sessions_dir,
+            platform_name="Uber",
+            profile_prefix="uber_profile_"
+        )
+        if not session_name:
+            print("No session selected. Exiting.")
+            return
 
     pickup_location = input("Please enter your pickup location: ")
     destination_location = input("Please enter your destination location: ")
