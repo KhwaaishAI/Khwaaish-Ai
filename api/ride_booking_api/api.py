@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+import asyncio
 import traceback
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -59,6 +60,30 @@ logger = setup_logger()
 # In a production scenario, you might replace this with Redis or another persistent store.
 active_jobs: Dict[str, Dict[str, Any]] = {}
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    This function is called when the FastAPI application is shutting down.
+    It cleans up any active automation jobs to prevent zombie browser processes.
+    """
+    logger.info("FastAPI server is shutting down. Cleaning up active ride-booking jobs...")
+    
+    if not active_jobs:
+        logger.info("No active ride-booking jobs to clean up.")
+        return
+
+    # Create a list of 'stop' tasks to run in parallel for all active jobs
+    shutdown_tasks = []
+    # Use list(active_jobs.items()) to avoid "dictionary changed size during iteration" error
+    for job_id, job_data in list(active_jobs.items()):
+        logger.info(f"Scheduling cleanup for job_id: {job_id}")
+        if job_data.get("uber"):
+            shutdown_tasks.append(job_data["uber"].stop())
+        if job_data.get("rapido"):
+            shutdown_tasks.append(job_data["rapido"].stop())
+    
+    await asyncio.gather(*shutdown_tasks)
+    logger.info(f"Cleaned up {len(active_jobs)} active job(s). Shutdown complete.")
 
 def _parse_price(price_str: Optional[str]) -> float:
     """Helper function to parse price strings like '₹1,234' into a float."""

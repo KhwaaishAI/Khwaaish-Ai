@@ -1,3 +1,3 @@
-2025/11/02-11:23:58.810 2453 Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Sync Data/LevelDB/MANIFEST-000001
-2025/11/02-11:23:58.822 2453 Recovering log #3
-2025/11/02-11:23:58.887 2453 Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Sync Data/LevelDB/000003.log 
+2025/11/02-22:28:06.770 805d Reusing MANIFEST /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Sync Data/LevelDB/MANIFEST-000001
+2025/11/02-22:28:06.814 805d Recovering log #3
+2025/11/02-22:28:06.814 805d Reusing old log /home/saif/Desktop/Khwaaish/app/agents/ride_booking/sessions/rapido_profile_saif/Default/Sync Data/LevelDB/000003.log 

@@ -3,6 +3,8 @@ from typing import Dict, Any, Optional, List
 from playwright.async_api import async_playwright
 import os
 from app.agents.ride_booking.config import Config
+import shutil
+import tempfile
 import difflib
 from app.agents.ride_booking.llm.assistant import LLMAssistant
 from app.agents.ride_booking.utills.logger import setup_logger
@@ -18,6 +20,7 @@ class UberAutomation:
         self.playwright = None
         self.context = None
         self.page = None
+        self.temp_user_data_dir = None # To hold the path of the temporary directory
 
         # --- State Management for API ---
         self.status: str = "initializing"
@@ -34,10 +37,22 @@ class UberAutomation:
         sessions_dir = self.config.SESSIONS_DIR
         os.makedirs(sessions_dir, exist_ok=True)
 
-        # --- Use Persistent Context for robust session saving, like in Ola ---
-        user_data_dir = os.path.join(sessions_dir, f"uber_profile_{session_name}") if session_name else None
-        is_existing_session = os.path.exists(user_data_dir) if user_data_dir else False
+        original_user_data_dir = os.path.join(sessions_dir, f"uber_profile_{session_name}") if session_name else None
+        is_existing_session = os.path.exists(original_user_data_dir) if original_user_data_dir else False
+
+        # --- Use a temporary copy of the session to avoid modifying the original ---
+        if is_existing_session:
+            # Create a temporary directory and copy the original profile into it.
+            self.temp_user_data_dir = tempfile.mkdtemp()
+            user_data_dir = os.path.join(self.temp_user_data_dir, f"uber_profile_{session_name}")
+            self.logger.info(f"Copying existing session '{original_user_data_dir}' to temporary location '{user_data_dir}' for this run.")
+            shutil.copytree(original_user_data_dir, user_data_dir)
+        else:
+            # If no session exists, we will create it in the original directory.
+            user_data_dir = original_user_data_dir
+
         self._update_status("running", "Initializing browser with persistent context.")
+
         self.playwright = await async_playwright().start()
         self.context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
@@ -70,8 +85,8 @@ class UberAutomation:
     async def search_rides(self, pickup_location: str, destination_location: str) -> List[Dict[str, Any]]:
         """Enters locations, searches for rides, and returns the extracted data."""
         self._update_status("running", "Entering ride details.")
-        await self.steps.click_ride_link_after_login()
-        await asyncio.sleep(5)
+        # await self.steps.click_ride_link_after_login()
+        # await asyncio.sleep(5)
         await self.steps.enter_pickup_location(pickup_location)
         await asyncio.sleep(5)
         await self.steps.enter_destination_location(destination_location)
@@ -113,5 +128,11 @@ class UberAutomation:
             await self.context.close()
         if self.playwright:
             await self.playwright.stop()
-            self.logger.info(f"[Playwright stopped.")
+            self.logger.info("[Playwright stopped.")
+
+        # --- Clean up the temporary session directory if it was used ---
+        if self.temp_user_data_dir and os.path.exists(self.temp_user_data_dir):
+            self.logger.info(f"Removing temporary session directory: {self.temp_user_data_dir}")
+            shutil.rmtree(self.temp_user_data_dir)
+
         self.logger.info(f"✅  Automation finished.")

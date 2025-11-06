@@ -5,7 +5,7 @@ import os
 # This is a crucial step to ensure that the script can find the other modules
 # in your project when you run it directly. It adds the project's root directory
 # to Python's path.
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
 from app.agents.ride_booking.ola.core import OlaAutomation

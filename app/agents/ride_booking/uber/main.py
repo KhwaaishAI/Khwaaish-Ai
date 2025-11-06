@@ -3,7 +3,7 @@ import sys
 import os
 
 # Add project root to Python's path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
 from app.agents.ride_booking.uber.core import UberAutomation
@@ -32,11 +32,11 @@ async def main():
         ride_options = await automation.search_rides(pickup_location, destination_location)
 
         if not ride_options:
-            print("\n❌ No ride options found on Rapido.")
+            print("\n❌ No ride options found on Uber.")
         else:
-            print("\n--- Available Rapido Rides ---")
+            print("\n--- Available Uber Rides ---")
             for i, ride in enumerate(ride_options):
-                print(f"  {i + 1}: {ride['name']} - {ride.get('price', 'N/A')} ({ride.get('eta', 'N/A')})")
+                print(f"  {i + 1}: {ride['name']} - {ride.get('price', 'N/A')} ({ride.get('eta_and_time', 'N/A')})")
 
             # --- Add ride selection logic ---
             try:
@@ -57,6 +57,6 @@ async def main():
         await automation.stop()
 
 if __name__ == "__main__":
-    print("🚀 Starting Rapido Automation Test Script...")
+    print("🚀 Starting Uber Automation Test Script...")
     asyncio.run(main())
     print("✅ Script finished.")

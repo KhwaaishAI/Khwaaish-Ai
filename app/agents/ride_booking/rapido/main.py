@@ -3,7 +3,7 @@ import sys
 import os
 
 # Add project root to Python's path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
 from app.agents.ride_booking.rapido.core import RapidoAutomation

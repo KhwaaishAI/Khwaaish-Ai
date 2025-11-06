@@ -106,11 +106,17 @@ class UberSteps:
             otp_prompt_locator = self.automation.page.locator("text=/Enter the 4-digit code sent to/")
             login_with_email_button = self.automation.page.locator('button[data-testid="Login with email"][data-baseweb="button"]')
 
+            # For Python 3.11+ compatibility, asyncio.wait() requires explicit Task objects.
+            tasks = [
+                asyncio.create_task(otp_prompt_locator.wait_for(state="visible", timeout=self.config.TIMEOUT)),
+                asyncio.create_task(login_with_email_button.wait_for(state="visible", timeout=self.config.TIMEOUT))
+            ]
+
             # Wait for either the OTP prompt or the "Login with email" button to appear.
-            await asyncio.wait([
-                otp_prompt_locator.wait_for(state="visible", timeout=self.config.TIMEOUT),
-                login_with_email_button.wait_for(state="visible", timeout=self.config.TIMEOUT)
-            ], return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+            for task in pending:
+                task.cancel() # Clean up the task that didn't complete.
 
             # If the "Login with email" button is visible, it means we're on the password screen.
             if await login_with_email_button.is_visible():
@@ -166,15 +172,11 @@ class UberSteps:
         """Enters the provided pickup location into the input field."""
         self.logger.info("Looking for the 'Enter location' input field.")
         try:
-            # Target the desktop form container first, then the input within it
-            # 1. Define the parent container selector
-            desktop_container_selector = '[data-testid="ddfd0771-ab61-4492-ae50-294a530a8923-desktop"]'
-
-            # 2. Define the pickup input selector (note the space for descendant)
-            pickup_input_selector = '[data-testid="dotcom-ui.pickup-destination.input.pickup"]'
-
-            # 3. Combine them and add the :visible filter
-            pickup_input = self.automation.page.locator(f'{desktop_container_selector} {pickup_input_selector}:visible')
+            # --- SPECIFICITY FIX ---
+            # The page has separate inputs for desktop and mobile. We must scope our search
+            # to the desktop container to avoid a strict mode violation.
+            desktop_container = self.automation.page.locator('[data-testid="child-content-desktop"]')
+            pickup_input = desktop_container.locator('[aria-label="Pickup location needs to be filled in"]')
 
             # 4. Await the action
             await pickup_input.click()
@@ -222,8 +224,12 @@ class UberSteps:
         self.logger.info("Looking for the 'Enter destination' input field.")
         try:
             # The destination input is usually visible after a pickup is selected.
-            destination_input_selector = '[data-testid="dotcom-ui.pickup-destination.input.destination"]'
-            destination_input = self.automation.page.locator(f'{destination_input_selector}:visible')
+            # --- COMPATIBILITY FIX & SPECIFICITY ---
+            # The destination input has a different aria-label. We use a "starts with" selector
+            # because the label might change slightly (e.g., "Dropoff location...").
+            # Using locator() ensures compatibility with older Playwright versions.
+            desktop_container = self.automation.page.locator('[data-testid="child-content-desktop"]')
+            destination_input = desktop_container.locator('[aria-label^="Dropoff location"]')
 
             # Wait for the input to be ready and click it.
             await destination_input.wait_for(state="visible", timeout=self.config.TIMEOUT)
@@ -252,12 +258,11 @@ class UberSteps:
         """Clicks the 'See prices' button after pickup and destination are set."""
         self.logger.info("Looking for the 'See prices' button.")
         try:
-            # The error log shows two "See prices" links. We must scope our search to the main
-            # booking form to ensure we click the correct one.
-            desktop_container_selector = '[data-testid="ddfd0771-ab61-4492-ae50-294a530a8923-desktop"]'
-            see_prices_button = self.automation.page.locator(desktop_container_selector).get_by_role(
-                "link", name="See prices"
-            )
+            # --- SPECIFICITY FIX ---
+            # The page has both desktop and mobile versions of the button in the DOM.
+            # We must scope our search to the desktop container to avoid a strict mode violation.
+            desktop_container = self.automation.page.locator('[data-testid="child-content-desktop"]')
+            see_prices_button = desktop_container.locator('[data-bits-testid="dotcom-ui.cta-link.button.0"]')
             
             await see_prices_button.wait_for(state="visible", timeout=self.config.TIMEOUT)
             await see_prices_button.click()
@@ -396,6 +401,7 @@ class UberSteps:
         if ride_data:
             # Create a directory for historical ride data if it doesn't exist.
             history_dir = os.path.join(os.path.dirname(__file__), '..', 'ride_history')
+            self.logger.info(f"Ensuring ride history directory exists at: {history_dir}")
             os.makedirs(history_dir, exist_ok=True)
 
             # Structure the data to be saved, including locations.
