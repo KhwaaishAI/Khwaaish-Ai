@@ -123,9 +123,12 @@ class RapidoSteps:
             print("ACTION REQUIRED: Please complete the Rapido login in the browser.")
             print("The script will wait until you are successfully logged in.")
             print("="*60 + "\n")
-            welcome_locator = self.automation.page.locator('div.main-heading:has-text("Welcome to Rapido!")').first
-            await welcome_locator.wait_for(state="visible", timeout=0) # Wait forever
-            self.logger.info("✅ Login confirmed. Welcome message is visible. Resuming automation.")
+            # --- FIX: The "Welcome" message does not appear. A more reliable indicator of a
+            # successful login is the appearance of the main ride list container. ---
+            post_login_container = self.automation.page.locator("div.fare-estimate-wrapper").first
+            self.logger.info("Waiting for user to complete login and for ride list to appear...")
+            await post_login_container.wait_for(state="visible", timeout=0) # Wait forever
+            self.logger.info("✅ Login confirmed. Ride list container is visible. Resuming automation.")
 
         # --- Handle intermittent 'Continue Booking' button ---
         continue_booking_button = self.automation.page.locator('button.next-button:has-text("Continue Booking")')
