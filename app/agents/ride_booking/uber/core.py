@@ -137,10 +137,16 @@ class UberAutomation:
         await asyncio.sleep(10)
 
         # The final booking step is commented out in steps.py, but if enabled, it would be called here.
-        # self.logger.info(f"Requesting ride: {ride_name}")
-        # await self.steps.click_request_ride_button()
+        self.logger.info(f"Requesting ride: {ride_name}")
+        # The click_request_ride_button method now returns True/False and handles its own exceptions.
+        # We only need to call it and capture the boolean result.
+        booking_successful = await self.steps.click_request_ride_button()
 
-        self._update_status("completed", f"Ride '{ride_name}' has been selected/requested.")
+        if booking_successful:
+            self._update_status("completed", f"Ride '{ride_name}' has been selected/requested.")
+        else:
+            self._update_status("running", f"Failed to request ride '{ride_name}'. It might be unavailable. Please select another ride.")
+        return booking_successful
 
     async def stop(self):
         """Gracefully stops the automation and closes browser resources."""

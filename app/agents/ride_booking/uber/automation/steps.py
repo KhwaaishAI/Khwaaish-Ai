@@ -469,18 +469,41 @@ class UberSteps:
             await self.automation.page.screenshot(path=f"uber_booking_failure_{product_id}.png")
             raise
 
-    # async def click_request_ride_button(self):
-    #     """
-    #     Finds and clicks the final 'Request' button to book the selected ride.
-    #     """
-    #     self.logger.info("Attempting to click the 'Request' button for the selected ride.")
-    #     try:
-    #         # This selector is based on the provided HTML and is highly specific.
-    #         request_button_selector = self.automation.page.locator('button[data-testid="request_trip_button"]')
+    async def click_request_ride_button(self):
+        """
+        Finds and clicks the final 'Request' button to book the selected ride.
+        """
+        self.logger.info("Attempting to click the 'Request' button for the selected ride.")
+        try:
+            request_button_selector = self.automation.page.locator('button[data-testid="request_trip_button"]')
             
-    #         await request_button_selector.wait_for(state="visible", timeout=self.config.TIMEOUT)
-    #         await request_button_selector.click()
-    #         self.logger.info("✅ Successfully clicked the 'Request' button. The ride should be booked.")
-    #     except Exception as e:
-    #         self.logger.error(f"Failed to find or click the 'Request' button: {e}")
-    #         raise
+            # --- CRITICAL FIX: Check if the button is enabled before clicking ---
+            # Wait for the button to be visible first.
+            await request_button_selector.wait_for(state="visible", timeout=self.config.TIMEOUT)
+
+            # Now, check if it's disabled. If so, return False.
+            if not await request_button_selector.is_enabled():
+                button_text = await request_button_selector.inner_text()
+                error_message = f"The final 'Request' button is disabled. The ride may be unavailable. Button text: '{button_text}'"
+                self.logger.error(error_message)
+                # Take a screenshot for debugging when the button is disabled
+                await self.automation.page.screenshot(path=f"uber_request_button_disabled_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png") # Ensure this line is present
+                return False  # Indicate failure due to unavailability. This line MUST NOT be 'raise Exception(...)'.
+
+            await request_button_selector.click()
+            self.logger.info("✅ Successfully clicked the initial 'Request' button.")
+
+            # --- NEW: Handle the second 'Confirm and request' button ---
+            self.logger.info("Looking for the final 'Confirm and request' button.")
+            confirm_button_selector = self.automation.page.locator('button[aria-label="Confirm and request"]')
+            await confirm_button_selector.wait_for(state="visible", timeout=10000) # Wait for 10s for it to appear
+            await confirm_button_selector.click()
+            self.logger.info("✅ Successfully clicked the final 'Confirm and request' button. The ride should be booked.")
+
+            await asyncio.sleep(100) # Keep browser open to observe booking status
+            return True  # Indicate success
+        except Exception as e:
+            self.logger.error(f"Failed to find or click the 'Request' button: {e}")
+            # Take a screenshot for debugging when the button is not found or other error occurs
+            await self.automation.page.screenshot(path=f"uber_request_button_not_found_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+            return False  # Indicate failure. This line MUST NOT be 'raise Exception(...)'.

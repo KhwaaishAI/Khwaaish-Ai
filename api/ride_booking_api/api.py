@@ -254,25 +254,31 @@ async def book_a_ride(request: RideBookingRequest):
     if not ride_to_book:
         raise HTTPException(status_code=404, detail="The selected ride could not be found in the last search results. Please search again.")
 
-    try:
-        logger.info(f"Job {job_id}: Attempting to book '{selected_ride.get('name')}' on {platform}.")
-        # if platform == 'Ola':
-        #     await ola_automation.book_ride(ride_to_book)
-        if platform == 'Uber':
-            await uber_automation.book_ride(ride_to_book)
-        elif platform == 'Rapido':
-            await rapido_automation.book_ride(ride_to_book)
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
+    logger.info(f"Job {job_id}: Attempting to book '{selected_ride.get('name')}' on {platform}.")
+    booking_successful = False # Initialize to False
+    
+    # The book_ride methods in UberAutomation and RapidoAutomation now return a boolean
+    # indicating success or failure, and handle their own internal exceptions for unavailability.
+    # Only truly unexpected system-level errors should propagate here.
+    if platform == 'Uber':
+        booking_successful = await uber_automation.book_ride(ride_to_book)
+    elif platform == 'Rapido':
+        booking_successful = await rapido_automation.book_ride(ride_to_book)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
-        return BookingResponse(status="booking_initiated", message=f"Booking process for '{selected_ride.get('name')}' has started.")
-    except Exception as e:
-        logger.error(f"Job {job_id}: Booking failed: {e}")
-        raise HTTPException(status_code=500, detail=f"An error occurred during booking: {e}")
-    finally:
-        # --- Always clean up the job after a booking attempt ---
-        logger.info(f"Job {job_id}: Shutting down automations...")
+    if booking_successful:
+        logger.info(f"Job {job_id}: Booking for '{selected_ride.get('name')}' on {platform} successful. Shutting down automations...")
+        # Stop both automations, even if only one was used for booking, to ensure all browser contexts are closed.
         await asyncio.gather(uber_automation.stop(), rapido_automation.stop())
-        # Remove the job from memory
         del active_jobs[job_id]
         logger.info(f"Job {job_id} stopped and cleaned up successfully.")
+        return BookingResponse(status="booking_initiated", message=f"Booking process for '{selected_ride.get('name')}' on {platform} has started.")
+    else:
+        # If booking was not successful (e.g., ride unavailable or button not found)
+        # The automations are NOT stopped, allowing the user to select another ride.
+        # The status and message from the automation object will contain details.
+        automation_instance = uber_automation if platform == 'Uber' else rapido_automation
+        error_message = f"Booking for '{selected_ride.get('name')}' on {platform} failed: {automation_instance.message}. Please select another ride."
+        logger.warning(f"Job {job_id}: {error_message}")
+        raise HTTPException(status_code=409, detail=error_message)
