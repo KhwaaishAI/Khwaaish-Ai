@@ -123,10 +123,17 @@ class RapidoSteps:
             print("ACTION REQUIRED: Please complete the Rapido login in the browser.")
             print("The script will wait until you are successfully logged in.")
             print("="*60 + "\n")
-            # --- FIX: The "Welcome" message does not appear. A more reliable indicator of a
-            # successful login is the appearance of the main ride list container. ---
+
+            # --- CRITICAL FIX: The previous check was flawed. We must first ensure the login
+            # input is visible, then wait for the post-login container to appear. ---
+            login_input_locator = self.automation.page.locator("input.mobile-input.phone-number")
             post_login_container = self.automation.page.locator("div.fare-estimate-wrapper").first
-            self.logger.info("Waiting for user to complete login and for ride list to appear...")
+
+            self.logger.info("Waiting for login screen to be ready...")
+            await login_input_locator.wait_for(state="visible", timeout=15000)
+            self.logger.info("Login screen is ready. Please enter your credentials.")
+
+            self.logger.info("Now waiting for successful login confirmation (ride list to appear)...")
             await post_login_container.wait_for(state="visible", timeout=0) # Wait forever
             self.logger.info("✅ Login confirmed. Ride list container is visible. Resuming automation.")
 
