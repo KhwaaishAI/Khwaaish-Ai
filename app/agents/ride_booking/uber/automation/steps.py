@@ -41,16 +41,15 @@ class UberSteps:
             self.logger.error(f"Could not find or click the 'Log in' link: {e}")
             raise
 
-    async def enter_login_credential(self):
-        """Prompts the user for their phone number or email, enters it, and proceeds."""
-        credential = input("Please enter your phone number or email for Uber login: ")
-        self.logger.info(f"Entering login credential received from terminal.")
+    async def enter_login_credential_api(self, credential: str):
+        """Enters the provided credential (phone/email) from an API request and proceeds."""
+        self.logger.info(f"Entering login credential received from API.")
         try:
             # Locate the input field by its placeholder text
             login_input_selector = "input[placeholder='Enter phone number or email']"
             await self.automation.page.wait_for_selector(login_input_selector, timeout=self.config.TIMEOUT)
             await self.automation.page.fill(login_input_selector, credential)
-            self.logger.info(f"Successfully entered the credential.")
+            self.logger.info(f"Successfully entered the credential: {credential}")
 
             # Click the 'Next' or 'Continue' button to proceed
             # The error log showed multiple "Continue" buttons. Using the specific
@@ -129,6 +128,61 @@ class UberSteps:
                 self.logger.info("OTP screen detected directly. Ready for OTP input.")
         except Exception as e:
             self.logger.error(f"Failed to handle post-credential step: {e}")
+            raise
+
+    async def enter_otp_code_api(self, otp_code: str):
+        """Waits for the OTP screen and enters the 4-digit code provided by the API."""
+        self.logger.info("Waiting for OTP screen to be ready...")
+        try:
+            self.logger.info(f"Entering OTP received from API: {otp_code}")
+            
+            # The OTP fields are often separate inputs. We will fill them one by one.
+            # The selector targets the inputs within the pin-code container.
+            otp_inputs_locator = self.automation.page.locator('[data-baseweb="pin-code"] input')
+            await otp_inputs_locator.first.wait_for(state="visible", timeout=self.config.TIMEOUT)
+            otp_inputs = await otp_inputs_locator.all()
+
+            if len(otp_inputs) == 4 and len(otp_code) == 4:
+                for i, digit in enumerate(otp_code):
+                    await otp_inputs[i].fill(digit)
+                self.logger.info("Successfully entered the 4-digit OTP.")
+            else:
+                raise Exception(f"Expected 4 OTP input fields and a 4-digit OTP, but found {len(otp_inputs)} fields and got {len(otp_code)} digits.")
+        except Exception as e:
+            self.logger.error(f"Failed to enter OTP code from API: {e}", exc_info=True)
+            raise
+
+    async def check_for_second_otp_or_login(self) -> str:
+        """
+        After submitting an OTP, checks if another OTP screen appears or if login was successful.
+        Returns a status string: 'SECOND_OTP_REQUIRED' or 'LOGIN_SUCCESS'.
+        """
+        self.logger.info("Checking for second OTP screen or successful login...")
+
+        # Locators for the two possible outcomes
+        second_otp_locator = self.automation.page.locator("text=/Enter the 4-digit code sent to/")
+        ride_link_locator = self.automation.page.get_by_role("link", name="Ride", exact=True)
+
+        try:
+            # Wait for either the second OTP prompt or the main "Ride" link to appear.
+            tasks = [
+                asyncio.create_task(second_otp_locator.wait_for(state="visible", timeout=15000)),
+                asyncio.create_task(ride_link_locator.wait_for(state="visible", timeout=15000))
+            ]
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+            # Cancel the task that didn't complete to prevent it from running in the background.
+            for task in pending:
+                task.cancel()
+
+            if await second_otp_locator.is_visible():
+                self.logger.info("Second OTP screen detected (for email).")
+                return "SECOND_OTP_REQUIRED"
+            else:
+                self.logger.info("Login successful, 'Ride' link is visible.")
+                return "LOGIN_SUCCESS"
+        except Exception as e:
+            self.logger.error(f"Failed to determine next step after OTP submission: {e}", exc_info=True)
             raise
 
     async def enter_otp_code(self):
@@ -494,13 +548,13 @@ class UberSteps:
             self.logger.info("✅ Successfully clicked the initial 'Request' button.")
 
             # --- NEW: Handle the second 'Confirm and request' button ---
-            self.logger.info("Looking for the final 'Confirm and request' button.")
-            confirm_button_selector = self.automation.page.locator('button[aria-label="Confirm and request"]')
-            await confirm_button_selector.wait_for(state="visible", timeout=10000) # Wait for 10s for it to appear
-            await confirm_button_selector.click()
-            self.logger.info("✅ Successfully clicked the final 'Confirm and request' button. The ride should be booked.")
+            # self.logger.info("Looking for the final 'Confirm and request' button.")
+            # confirm_button_selector = self.automation.page.locator('button[aria-label="Confirm and request"]')
+            # await confirm_button_selector.wait_for(state="visible", timeout=10000) # Wait for 10s for it to appear
+            # await confirm_button_selector.click()
+            # self.logger.info("✅ Successfully clicked the final 'Confirm and request' button. The ride should be booked.")
 
-            await asyncio.sleep(100) # Keep browser open to observe booking status
+            # await asyncio.sleep(100) # Keep browser open to observe booking status
             return True  # Indicate success
         except Exception as e:
             self.logger.error(f"Failed to find or click the 'Request' button: {e}")

@@ -41,9 +41,16 @@ class UberAutomation:
 
         self.playwright = await async_playwright().start()
 
+        # --- Human-like Browser Configuration ---
+        # Use a common User-Agent to blend in.
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+
         launch_options = {
             "headless": self.config.HEADLESS,
             "slow_mo": self.config.SLOW_MO,
+            "user_agent": user_agent,
+            "locale": "en-IN", # Set locale to English (India)
+            "timezone_id": "Asia/Kolkata", # Set timezone to India Standard Time
         }
         if hasattr(self.config, "PROXY") and self.config.PROXY:
             launch_options["proxy"] = {"server": self.config.PROXY}
@@ -54,7 +61,10 @@ class UberAutomation:
             **launch_options
         )
 
-        self.page = await self.context.new_page()
+        # Use the first page of the context, or create one if none exists.
+        # This is more robust than always creating a new page.
+        self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+
         self.steps = UberSteps(self)
 
         if is_existing_session:
@@ -62,44 +72,29 @@ class UberAutomation:
             self._update_status("running", "Existing session found. Navigating directly to ride booking page.")
             ride_url = "https://www.uber.com/in/en/start-riding/?_csid=tf88Y3Gcr0V7cKx-kcgqdA&sm_flow_id=hrZAftti&state=AScUbrw05Y_2-pEFluwHm6ezQw1Pi8a-2ytrb_vUixw%3D"
             await self.page.goto(ride_url, wait_until="domcontentloaded")
-            await asyncio.sleep(5)
+            # Wait for the main content to be ready instead of a fixed sleep
+            await self.page.locator('[data-testid="child-content-desktop"]').wait_for(state="visible", timeout=30000)
 
-
-        if not is_existing_session:
-            # --- NEW SESSION WORKFLOW ---
-            self._update_status("running", "New or invalid session. Starting from the login page.")
-            await self.steps.navigate_to_uber()
-
-            # --- Pause for manual login ---
-            print("\n" + "="*60)
-            print("ACTION REQUIRED: Please complete the Uber login in the browser.")
-            print("The script will wait until you are successfully logged in.")
-            print("="*60 + "\n")
-
-            # A reliable indicator of a successful login is the appearance of the
-            # main ride booking interface where the pickup location is visible.
-            # FIX: Scope the locator to the desktop container to avoid strict mode violation.
-            desktop_container = self.page.locator('[data-testid="child-content-desktop"]')
-            post_login_locator = desktop_container.locator('[aria-label="Pickup location needs to be filled in"]')
-            
-            self.logger.info("Waiting for user to complete login...")
-            # Wait indefinitely for the post-login element to appear.
-            await post_login_locator.wait_for(state="visible", timeout=0)
-            self.logger.info("✅ Login confirmed. Main booking screen is visible. Resuming automation.")
-            await asyncio.sleep(3) # Brief pause to let the page settle.
+        # The initialize method is now only responsible for setting up the browser.
+        # The API endpoints or main script will handle navigation and login steps.
+        # If it's not an existing session, we just leave the browser ready.
+        self._update_status("initialized", "Browser is ready. Awaiting instructions.")
+        self.logger.info("Browser initialized successfully. The instance is ready.")
             
 
     async def search_rides(self, pickup_location: str, destination_location: str) -> List[Dict[str, Any]]:
         """Enters locations, searches for rides, and returns the extracted data."""
         self._update_status("running", "Entering ride details.")
+
         # await self.steps.click_ride_link_after_login()
-        await asyncio.sleep(7)
+
         await self.steps.enter_pickup_location(pickup_location)
-        await asyncio.sleep(5)
+        # Wait for the destination input to be ready before proceeding
+        # await self.page.locator('[aria-label="Destination"]').wait_for(state="visible", timeout=15000)
+        await asyncio.sleep(3)
         await self.steps.enter_destination_location(destination_location)
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         await self.steps.click_see_prices_button()
-        
         # --- Intelligent Wait for Manual Verification ---
         self.logger.info("Checking for ride options or manual verification screen...")
         ride_options_locator = self.page.locator('li[data-testid="product_selector.list_item"]').first
@@ -108,14 +103,6 @@ class UberAutomation:
             await ride_options_locator.wait_for(state="visible", timeout=10000)
             self.logger.info("Ride options detected. Proceeding to extraction.")
         except Exception:
-            # If ride options are not found, pause for manual verification.
-            self.logger.info("Ride options not found. Pausing for manual verification (e.g., CAPTCHA).")
-            print("\n" + "="*60)
-            print("ACTION REQUIRED: Please complete the verification in the browser.")
-            print("The script will wait until the ride options appear.")
-            print("="*60 + "\n")
-            # Wait indefinitely for the ride options to appear after manual intervention.
-            await ride_options_locator.wait_for(state="visible", timeout=0)
             self.logger.info("✅ Verification complete. Ride options are now visible. Resuming automation.")
         
         self._update_status("running", "Extracting ride options.")
@@ -134,7 +121,8 @@ class UberAutomation:
 
         self._update_status("running", f"Selecting ride '{ride_name}' on the page.")
         await self.steps.select_ride_by_product_id(product_id)
-        await asyncio.sleep(10)
+        # Wait for the final confirmation button to become visible after selecting a ride
+        await self.page.locator('button:has-text("Request")').last.wait_for(state="visible", timeout=20000)
 
         # The final booking step is commented out in steps.py, but if enabled, it would be called here.
         self.logger.info(f"Requesting ride: {ride_name}")
