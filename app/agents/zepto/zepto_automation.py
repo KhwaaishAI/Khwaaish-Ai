@@ -69,7 +69,9 @@ async def search_and_add_item(page, item_name: str, quantity: int):
     print(f"- Final selection: '{best_match_product['name']}' at ₹{best_match_product['price']}")
     
     try:
-        add_button = selected_card.locator('button.ciE0m4.c2lTrV.cuPUm6.cVtNX5').first
+        add_button = selected_card.get_by_role('button', name=re.compile(r'^add$', re.I)).first
+        if not await add_button.is_visible(timeout=2000):
+            add_button = selected_card.locator('button:has-text("Add")').first
         await add_button.click(timeout=5000)
         print("- Clicked 'ADD' once.")
         await page.wait_for_timeout(1000)
@@ -86,7 +88,9 @@ async def search_and_add_item(page, item_name: str, quantity: int):
         
         if quantity > 1:
             for i in range(quantity - 1):
-                plus_button = page.locator('button.cG8zC0[aria-label="Increase quantity"]').first
+                plus_button = selected_card.get_by_role('button', name=re.compile('increase', re.I)).first
+                if not await plus_button.is_visible(timeout=1500):
+                    plus_button = page.locator('[aria-label="Increase quantity"]').first
                 await plus_button.click(timeout=5000)
                 print(f"- Clicked '+' ({i+2}/{quantity})")
                 await page.wait_for_timeout(300)
@@ -146,6 +150,8 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
         print("\nStep 4: Clicking on cart button...")
         try:
             cart_button = page.locator('button[data-testid="cart-btn"]').first
+            if not await cart_button.is_visible(timeout=2000):
+                cart_button = page.get_by_role('button', name=re.compile('cart', re.I)).first
             await cart_button.click(timeout=5000)
             print("✅ Cart button clicked successfully.")
             await page.wait_for_timeout(2000)
@@ -155,7 +161,9 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
         
         print("\nStep 5: Clicking on 'Login' button...")
         try:
-            login_button = page.locator('div.flex.items-center.justify-center h6').first
+            login_button = page.get_by_role('button', name=re.compile('login', re.I)).first
+            if not await login_button.is_visible(timeout=2000):
+                login_button = page.get_by_text('Login').first
             await login_button.click(timeout=5000)
             print("✅ Login button clicked successfully.")
             await page.wait_for_timeout(2000)
@@ -165,7 +173,9 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
         
         print("\nStep 6: Entering phone number...")
         try:
-            phone_input = page.locator('input[placeholder="Enter Phone Number"]').first
+            phone_input = page.get_by_placeholder('Enter Phone Number')
+            if not await phone_input.is_visible(timeout=2000):
+                phone_input = page.locator('[placeholder*="Phone"]').first
             await phone_input.fill(mobile_number)
             print("✅ Phone number entered successfully.")
             await page.wait_for_timeout(1000)
@@ -175,7 +185,9 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
         
         print("\nStep 7: Clicking 'Continue' button...")
         try:
-            continue_button = page.locator('button[type="button"]:has-text("Continue")').first
+            continue_button = page.get_by_role('button', name=re.compile('continue', re.I)).first
+            if not await continue_button.is_visible(timeout=2000):
+                continue_button = page.locator('button:has-text("Continue")').first
             await continue_button.click(timeout=5000)
             print("✅ Continue button clicked successfully.")
             await page.wait_for_timeout(2000)
@@ -190,7 +202,9 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
         
         print("\nStep 9: Clicking 'Add Address to proceed' button...")
         try:
-            add_address_button = page.locator('button.my-2\\.5.h-\\[52px\\].w-full.rounded-xl.bg-skin-primary.text-center').first
+            add_address_button = page.get_by_role('button', name=re.compile('add address', re.I)).first
+            if not await add_address_button.is_visible(timeout=2000):
+                add_address_button = page.locator('button:has-text("Add Address")').first
             await add_address_button.click(timeout=5000)
             print("✅ Add Address button clicked successfully.")
             await page.wait_for_timeout(2000)
@@ -201,6 +215,8 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
         print("\nStep 10: Selecting the first saved address...")
         try:
             first_address = page.locator('div.ctyATk').first
+            if not await first_address.is_visible(timeout=2000):
+                first_address = page.get_by_role('button').first
             await first_address.click(timeout=5000)
             print("✅ First address selected.")
             await page.wait_for_timeout(3000)
@@ -210,7 +226,9 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
         
         print("\nStep 11: Clicking 'Click to Pay' button...")
         try:
-            pay_button = page.locator('button.my-2\\.5.h-\\[52px\\].w-full.rounded-xl.text-center.bg-skin-primary').first
+            pay_button = page.get_by_role('button', name=re.compile('pay|proceed', re.I)).first
+            if not await pay_button.is_visible(timeout=2000):
+                pay_button = page.locator('button:has-text("Pay"), button:has-text("Proceed")').first
             await pay_button.click(timeout=5000)
             print("✅ 'Click to Pay' button clicked successfully.")
         except Exception as e:

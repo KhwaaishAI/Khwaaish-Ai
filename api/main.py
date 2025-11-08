@@ -1,8 +1,13 @@
 from fastapi import FastAPI
+import sys
+import asyncio
 
 from api.blinkit_api.blinkit_api import router as blinkit_router
 from api.zepto_api.zepto_api import router as zepto_router
 from api.swiggy_api.swiggy_api import router as swiggy_router
+
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 app = FastAPI(
     title="Khwaaish API",
