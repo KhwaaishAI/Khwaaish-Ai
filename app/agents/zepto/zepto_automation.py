@@ -18,9 +18,22 @@ async def search_and_add_item(page, item_name: str, quantity: int):
     print(f"- Navigating to search page: {search_url}")
     await page.goto(search_url)
 
+    # Ensure cart drawer or overlays are closed
     try:
-        product_card_selector = 'div.c5SZXs.ccdFPa'
-        await page.wait_for_selector(product_card_selector, timeout=15000)
+        try:
+            await page.keyboard.press('Escape')
+        except Exception:
+            pass
+        try:
+            browse_btn = page.get_by_role('button', name=re.compile('browse products', re.I)).first
+            if await browse_btn.is_visible(timeout=1000):
+                await browse_btn.click(timeout=3000)
+                await page.wait_for_timeout(500)
+        except Exception:
+            pass
+
+        product_card_selector = 'div:has(button:has-text("ADD"))'
+        await page.wait_for_selector('button:has-text("ADD")', timeout=15000)
         print("- Product results page loaded successfully.")
     except TimeoutError:
         print(f"⚠️ Could not find any products for '{item_name}' on the page. Skipping.")
@@ -36,18 +49,21 @@ async def search_and_add_item(page, item_name: str, quantity: int):
         card = product_locator.nth(i)
         try:
             name_elem = card.locator('div[data-slot-id="ProductName"] span').first
-            price_elem = card.locator('p.cGFDG0.cB6nZL span.cnL9fm').first
-            
-            if not await name_elem.is_visible(timeout=1000) or not await price_elem.is_visible(timeout=1000):
+            if not await name_elem.is_visible(timeout=1000):
+                name_elem = card.locator('xpath=.//h3|.//h4|.//span').first
+            name = (await name_elem.text_content(timeout=2000) or '').strip()
+
+            price_elem = card.locator('xpath=.//*[contains(text(), "₹")][1]').first
+            price_text = (await price_elem.text_content(timeout=2000) or '')
+            digits = re.findall(r"\d+[.,]?\d*", price_text)
+            price = float(digits[0].replace(',', '')) if digits else 0.0
+
+            add_exists = await card.locator('button:has-text("ADD")').first.is_visible(timeout=1000)
+            if not name or not add_exists:
                 continue
-            
-            name = (await name_elem.text_content(timeout=2000)).strip()
-            price_parent = price_elem.locator('..')
-            price_text = await price_parent.text_content(timeout=2000)
-            price = float(re.sub(r'[^\d.]', '', price_text))
-            
+
             scraped_products.append({'name': name, 'price': price, 'card': card})
-        except Exception as e:
+        except Exception:
             continue 
 
     if not scraped_products:
@@ -69,14 +85,42 @@ async def search_and_add_item(page, item_name: str, quantity: int):
     print(f"- Final selection: '{best_match_product['name']}' at ₹{best_match_product['price']}")
     
     try:
+        await selected_card.scroll_into_view_if_needed()
+        try:
+            await selected_card.hover()
+        except Exception:
+            pass
+
         add_button = selected_card.get_by_role('button', name=re.compile(r'^add$', re.I)).first
         if not await add_button.is_visible(timeout=2000):
             add_button = selected_card.locator('button:has-text("Add")').first
-        await add_button.click(timeout=5000)
+
+        clicked = False
+        for _ in range(2):
+            try:
+                await add_button.click(timeout=5000)
+                clicked = True
+                break
+            except Exception:
+                await page.wait_for_timeout(500)
+        if not clicked:
+            raise Exception("Add button click failed")
         print("- Clicked 'ADD' once.")
-        await page.wait_for_timeout(1000)
-        
-        # Check if Super Saver popup appeared and close it
+
+        # Confirm quantity control appears
+        try:
+            qty_ctrl = selected_card.locator('[aria-label="Increase quantity"]').first
+            await qty_ctrl.wait_for(state='visible', timeout=3000)
+        except Exception:
+            try:
+                await add_button.click(timeout=3000)
+                qty_ctrl = selected_card.locator('[aria-label="Increase quantity"]').first
+                await qty_ctrl.wait_for(state='visible', timeout=3000)
+            except Exception:
+                pass
+        await page.wait_for_timeout(500)
+
+        # Close potential Super Saver popup
         try:
             close_button = page.locator('button.absolute.right-3').first
             if await close_button.is_visible(timeout=2000):
@@ -85,7 +129,7 @@ async def search_and_add_item(page, item_name: str, quantity: int):
                 await page.wait_for_timeout(500)
         except Exception:
             pass
-        
+
         if quantity > 1:
             for i in range(quantity - 1):
                 plus_button = selected_card.get_by_role('button', name=re.compile('increase', re.I)).first
@@ -236,8 +280,13 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
             return
         
         print("\n✅ Automation script finished.")
-        print("Browser will close in 10 seconds.")
-        await asyncio.sleep(10)
+        print("You can now complete the payment manually.")
+        print("The browser will remain open for up to 10 minutes, then it will close automatically.")
+        try:
+            await asyncio.sleep(600)
+        except Exception:
+            pass
+        print("Time window elapsed. Attempting to close the browser...")
 
     except TimeoutError as e:
         print(f"❌ A timeout error occurred: {e}")
@@ -245,5 +294,8 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
     except Exception as e:
         print(f"❌ An unexpected error occurred: {e}")
     finally:
-        await browser.close()
+        try:
+            await browser.close()
+        except Exception:
+            pass
         print("\nBrowser closed. Script finished.")
