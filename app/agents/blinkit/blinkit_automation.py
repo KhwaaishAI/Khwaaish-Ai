@@ -1,14 +1,20 @@
 import re
 import asyncio
+import json
 from playwright.async_api import TimeoutError
 from urllib.parse import quote_plus
 import sys
 import os
+from datetime import datetime
 
 # Add the root directory to the Python path to enable imports from other modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from app.prompts.blinkit_prompts.blinkit_prompts import find_best_match
+
+# Path to store authentication state
+AUTH_FILE_PATH = os.path.join(os.path.dirname(__file__), "playwright_auth.json")
+SEARCH_HISTORY_DIR = os.path.join(os.path.dirname(__file__), "search_history")
 
 async def search_and_add_item(page, item_name: str, quantity: int):
     """Searches for an item, selects the best match, and adds it to the cart."""
@@ -67,16 +73,16 @@ async def search_and_add_item(page, item_name: str, quantity: int):
     print(f"- Final selection: '{best_match_product['name']}' at ₹{best_match_product['price']}")
     
     try:
-        add_button = selected_card.get_by_role("button", name="ADD")
+        add_button = selected_card.locator('div[role="button"]:has-text("ADD")')
         await add_button.click(timeout=5000)
         print("- Clicked 'ADD' once.")
         await page.wait_for_timeout(500)
         
         if quantity > 1:
             for i in range(quantity - 1):
-                plus_button = selected_card.locator('button:has(span.icon-plus)').first
+                plus_button = selected_card.locator('button:has(span.icon-plus)')
                 await plus_button.click(timeout=5000)
-                print(f"- Clicked '+' ({i+2}/{quantity})")
+                print(f"- Clicked '+' to increase quantity to {i+2}")
                 await page.wait_for_timeout(300)
         print(f"✅ Successfully added {quantity} of '{item_name}' to cart.")
 
@@ -86,8 +92,14 @@ async def search_and_add_item(page, item_name: str, quantity: int):
 async def automate_blinkit(shopping_list: dict, location: str, mobile_number: str, p):
     """Launches Playwright to set location and process the shopping list."""
     print("\nStep 2: Starting browser automation with Playwright...")
+    
+    context_options = {}
+    if os.path.exists(AUTH_FILE_PATH):
+        print("- Found existing authentication file. Loading session...")
+        context_options['storage_state'] = AUTH_FILE_PATH
+
     browser = await p.chromium.launch(headless=False, slow_mo=50)
-    context = await browser.new_context()
+    context = await browser.new_context(**context_options)
     page = await context.new_page()
 
     print("Navigating to Blinkit...")
@@ -95,7 +107,16 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
     
     location_input = page.get_by_placeholder("search delivery location")
     await location_input.fill(location)
-    await page.locator(".LocationSearchList__LocationListContainer-sc-93rfr7-0").first.click()
+    try:
+        await page.locator(".LocationSearchList__LocationListContainer-sc-93rfr7-0").first.click()
+    except TimeoutError:
+        # If the location is already set from the previous session, this might not be needed.
+        # We can check if we are on the main page by looking for the search bar.
+        try:
+            await page.wait_for_selector("input[placeholder*='Search for']", timeout=5000)
+            print("- Location seems to be already set from the session.")
+        except TimeoutError:
+            print("❌ Critical Error: Could not set location or verify main page.")
     
     print("Location set. Waiting for 4 seconds before searching for items...")
     await page.wait_for_timeout(4000)
@@ -109,60 +130,71 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
     
     print("\n✅ All items processed. Cart should be ready.")
     
-    print("\nStep 4: Clicking on cart button...")
-    try:
-        cart_button = page.locator('div.CartButton__Button-sc-1fuy2nj-5').first
-        await cart_button.click(timeout=5000)
-        print("✅ Cart button clicked successfully.")
+    # Check if we are already logged in by looking for a "Proceed" button instead of "Login to Proceed"
+    is_logged_in = await page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').is_visible()
+
+    if not is_logged_in:
+        print("\n- User not logged in. Starting login flow...")
+        print("\nStep 4: Clicking on cart button...")
+        try:
+            cart_button = page.locator('div.CartButton__Button-sc-1fuy2nj-5').first
+            await cart_button.click(timeout=5000)
+            print("✅ Cart button clicked successfully.")
+            await page.wait_for_timeout(2000)
+        except Exception as e:
+            print(f"❌ Error clicking cart button: {e}")
+            return
+        
+        print("\nStep 5: Clicking on 'Login to Proceed' button...")
+        try:
+            login_button = page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Login to Proceed")').first
+            await login_button.click(timeout=5000)
+            print("✅ Login to Proceed clicked successfully.")
+            await page.wait_for_timeout(2000)
+        except Exception as e:
+            print(f"❌ Error clicking Login to Proceed: {e}")
+            return
+        
+        print("\nStep 6: Entering phone number...")
+        try:
+            phone_input = page.locator('input.login-phone__input[data-test-id="phone-no-text-box"]').first
+            await phone_input.fill(mobile_number)
+            print("✅ Phone number entered successfully.")
+            await page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"❌ Error entering phone number: {e}")
+            return
+        
+        print("\nStep 7: Clicking 'Continue' button...")
+        try:
+            continue_button = page.locator('button.PhoneNumberLogin__LoginButton-sc-1j06udd-4:has-text("Continue")').first
+            await continue_button.click(timeout=5000)
+            print("✅ Continue button clicked successfully.")
+        except Exception as e:
+            print(f"❌ Error clicking Continue button: {e}")
+            return
+        
+        print("\nStep 8: Waiting for OTP entry (30 seconds)...")
+        print("⏳ Please enter the OTP on the browser...")
+        await asyncio.sleep(30)
+        print("✅ OTP wait period completed.")
+        
+        print("\nStep 9: Waiting for page to load after OTP...")
+        await page.wait_for_timeout(3000)
+        try:
+            # After OTP, the button should now say "Proceed"
+            proceed_button = page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').first
+            await proceed_button.click(timeout=5000)
+            print("✅ Final Proceed button clicked successfully.")
+            await page.wait_for_timeout(2000)
+        except Exception as e:
+            print(f"❌ Error clicking final Proceed button: {e}")
+            return
+    else:
+        print("\n- User is already logged in. Proceeding with checkout...")
+        await page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').first.click(timeout=5000)
+        print("✅ Clicked 'Proceed' button.")
         await page.wait_for_timeout(2000)
-    except Exception as e:
-        print(f"❌ Error clicking cart button: {e}")
-        return
-    
-    print("\nStep 5: Clicking on 'Login to Proceed' button...")
-    try:
-        login_button = page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Login to Proceed")').first
-        await login_button.click(timeout=5000)
-        print("✅ Login to Proceed clicked successfully.")
-        await page.wait_for_timeout(2000)
-    except Exception as e:
-        print(f"❌ Error clicking Login to Proceed: {e}")
-        return
-    
-    print("\nStep 6: Entering phone number...")
-    try:
-        phone_input = page.locator('input.login-phone__input[data-test-id="phone-no-text-box"]').first
-        await phone_input.fill(mobile_number)
-        print("✅ Phone number entered successfully.")
-        await page.wait_for_timeout(1000)
-    except Exception as e:
-        print(f"❌ Error entering phone number: {e}")
-        return
-    
-    print("\nStep 7: Clicking 'Continue' button...")
-    try:
-        continue_button = page.locator('button.PhoneNumberLogin__LoginButton-sc-1j06udd-4:has-text("Continue")').first
-        await continue_button.click(timeout=5000)
-        print("✅ Continue button clicked successfully.")
-    except Exception as e:
-        print(f"❌ Error clicking Continue button: {e}")
-        return
-    
-    print("\nStep 8: Waiting for OTP entry (20 seconds)...")
-    print("⏳ Please enter the OTP on the browser...")
-    await asyncio.sleep(30)
-    print("✅ OTP wait period completed.")
-    
-    print("\nStep 9: Waiting for page to load after OTP...")
-    await page.wait_for_timeout(3000)
-    try:
-        proceed_button = page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').first
-        await proceed_button.click(timeout=5000)
-        print("✅ Final Proceed button clicked successfully.")
-        await page.wait_for_timeout(2000)
-    except Exception as e:
-        print(f"❌ Error clicking final Proceed button: {e}")
-        return
 
     print("\nStep 10: Selecting the first saved address...")
     try:
@@ -187,3 +219,213 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
     print("\n✅ Automation script finished.")
     print("Browser will close in 10 seconds.")
     await asyncio.sleep(10)
+
+async def login(p, mobile_number: str, location: str) -> tuple:
+    """
+    Launches Playwright, navigates to Blinkit, and proceeds until the OTP screen.
+    Returns the browser context and page for the next step.
+    """
+    print("\nStarting browser automation for Blinkit login...")
+    browser = await p.chromium.launch(headless=False, slow_mo=50)
+    context = await browser.new_context()
+    page = await context.new_page()
+    try:
+        print("Navigating to Blinkit...")
+        # Use a more reliable wait strategy and a clean URL
+        await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")
+        # Check if the location input field is present on the landing page
+        location_input_selector = 'div.display--table-cell.full-width > input[placeholder="search delivery location"]'
+        location_input = page.locator(location_input_selector)
+        await location_input.click()
+        await location_input.fill(location)
+        await page.wait_for_timeout(1000)
+        await page.locator(".LocationSearchList__LocationListContainer-sc-93rfr7-0").first.click()
+        print(f"✅ Location set to '{location}'.")
+        # After setting location, the page reloads. We must wait for the login button to appear again.
+        print("- Waiting for page to reload after setting location...")
+        await page.locator("div.bFHCDW:has-text('Login')").first.wait_for(timeout=15000)
+
+
+        print("Clicking on the main login button...")
+        # Target the most specific element containing the text "Login"
+        login_button = page.locator("div.bFHCDW:has-text('Login')").first
+        await login_button.click(timeout=5000)
+        print("✅ Login button clicked.")
+
+        print("Entering phone number...")
+        phone_input = page.locator('input.login-phone__input[data-test-id="phone-no-text-box"]').first
+        # Wait for the phone input to be visible after clicking login
+        await phone_input.wait_for(timeout=10000)
+        await phone_input.fill(mobile_number)
+        print(f"✅ Phone number '{mobile_number}' entered successfully.")
+
+        continue_button = page.locator('button.PhoneNumberLogin__LoginButton-sc-1j06udd-4:has-text("Continue")').first
+        await continue_button.click(timeout=5000)
+        print("✅ Clicked 'Continue' button.")
+
+        print("\n✅ OTP screen reached. Ready for OTP submission.")
+        return context, page
+
+    except Exception as e:
+        # If something goes wrong, close the browser to prevent orphaned processes
+        if 'context' in locals() and context:
+            await context.browser.close()
+        print(f"❌ An error occurred during login automation: {e}")
+        raise
+
+async def enter_otp_and_save_session(context, otp: str):
+    """Enters the OTP, saves the session state, and closes the browser."""
+    page = context.pages[0]
+    print(f"\nSubmitting OTP: {otp}")
+    otp_inputs = page.locator('input[data-test-id="otp-text-box"]')
+    for i, digit in enumerate(otp):
+        await otp_inputs.nth(i).fill(digit)
+    
+    print("✅ OTP entered. Waiting 10 seconds for session to be established...")
+    await asyncio.sleep(10)
+    
+    await context.storage_state(path=AUTH_FILE_PATH)
+    print(f"✅ Authentication state saved to {AUTH_FILE_PATH}")
+
+async def add_product_to_cart(context, product_name: str, quantity: int, location: str):
+    """Finds a specific product on the current page and adds it to the cart."""
+    page = context.pages[0]
+    print(f"\nAttempting to add '{product_name}' (Quantity: {quantity}) to cart.")
+
+    # We will use the existing search_and_add_item function's logic here
+    # In a real-world scenario, you might refactor this further
+    # For now, we'll call the search and add logic directly.
+    await search_and_add_item(page, product_name, quantity)
+
+    # After adding, click the main cart button to proceed
+    try:
+        cart_button_selector = 'div.CartButton__Button-sc-1fuy2nj-5'
+        cart_button = page.locator(cart_button_selector).first
+        await cart_button.wait_for(state="visible", timeout=5000)
+        
+        # Check if cart is not empty before clicking
+        cart_text = await cart_button.text_content()
+        if "item" in cart_text or "items" in cart_text:
+            await cart_button.click()
+            print("✅ Clicked the main cart button to view cart summary.")
+            
+            # Now, click the "Proceed" button on the checkout strip
+            try:
+                # Target the main clickable container for the "Proceed" action by its classes.
+                proceed_selector = 'div.CheckoutStrip__AmountContainer-sc-1f2bdhy-17.ilqCAS'
+                proceed_button = page.locator(proceed_selector).first
+
+           
+                # zoom = 110
+                # print(f"- Adjusting zoom to {zoom}% to find 'Proceed' button...")
+                # await page.evaluate(f"document.body.style.zoom = '{zoom}%'")
+                   
+                await asyncio.sleep(3)
+                await proceed_button.wait_for(state="visible", timeout=5000)
+
+                # If the button is visible, click it immediately and exit the loop.
+                await proceed_button.click(timeout=1000)
+                # print(f"✅ Clicked 'Proceed' on the checkout strip at {zoom}% zoom.")
+
+
+                # After clicking proceed, add the new address
+                try:
+                    add_address_selector = 'div.CartAddress__AddAddressContainer-sc-1jv0-10:has-text("Add a new address")'
+                    add_address_button = page.locator(add_address_selector).first
+                    await add_address_button.wait_for(state="visible", timeout=5000)
+                    await add_address_button.click()
+                    print("✅ Clicked 'Add a new address'.")
+
+                    # Fill in the new address
+                    address_input_selector = 'div.Select-input > input'
+                    await page.locator(address_input_selector).first.fill(location)
+                    print(f"- Filled address: '{location}'. Waiting for suggestions...")
+                    await page.wait_for_timeout(2000) # Wait for suggestions to load
+                    await page.keyboard.press("ArrowDown")
+                    await page.keyboard.press("Enter")
+                    print("✅ Selected the first address suggestion.")
+                except Exception as address_error:
+                    print(f"❌ Could not add new address: {address_error}")
+            except Exception as proceed_error:
+                print(f"❌ Could not click the 'Proceed' button: {proceed_error}")
+        else:
+            print("⚠️ Cart appears empty, not clicking the cart button.")
+    except Exception as e:
+        print(f"❌ Could not click the main cart button: {e}")
+
+async def search_multiple_products(p, queries: list[str]) -> tuple[any, any, dict]:
+    """
+    Launches a browser, logs in with saved state, and searches for multiple products.
+    Returns the context, page, and scraped results to keep the session alive.
+    """
+    print("\nStarting browser automation for multi-product search...")
+    if not os.path.exists(AUTH_FILE_PATH):
+        print("❌ Authentication file not found. Please login first.")
+        return {"error": "User not logged in. Please use the /login endpoint first."}
+
+    browser = await p.chromium.launch(headless=False, slow_mo=50)
+    context = await browser.new_context(storage_state=AUTH_FILE_PATH)
+    page = await context.new_page()
+
+    print("Navigating to Blinkit home page to initialize session...")
+    await page.goto("https://www.blinkit.com/")
+    print("- Allowing time for session to be recognized...")
+    await page.wait_for_timeout(3000)
+
+    # Although we search for multiple items, we will land on the page of the *last* item.
+    # The user can then choose to add an item from that page.
+    all_results = {}
+    for query in queries:
+        print(f"\n--- Searching for: '{query}' ---")
+        products = await search_products(page, query)
+        all_results[query] = products
+    
+    return context, page, all_results
+async def search_products(page, query: str) -> list:
+    """
+    Searches for a single product query on an existing Playwright page.
+    """
+    try:
+        search_url = f"https://www.blinkit.com/s/?q={quote_plus(query)}"
+        print(f"- Navigating to search URL: {search_url}")
+        await page.goto(search_url, wait_until="domcontentloaded")
+
+        product_card_selector = 'div[id][data-pf="reset"]'
+        await page.wait_for_selector(product_card_selector, timeout=15000)
+        print("- Product results page loaded.")
+
+        product_cards = await page.locator(product_card_selector).all()
+        scraped_products = []
+        print(f"- Found {len(product_cards)} products. Scraping details...")
+
+        for card in product_cards:
+            try:
+                name = await card.locator('.tw-text-300.tw-font-semibold.tw-line-clamp-2').text_content(timeout=2000)
+                price_text = await card.locator('.tw-text-200.tw-font-semibold').text_content(timeout=2000)
+                price = float(re.sub(r'[^\d.]', '', price_text))
+                scraped_products.append({'name': name.strip(), 'price': price})
+            except Exception:
+                continue
+
+        # Save the results to a local JSON file
+        try:
+            os.makedirs(SEARCH_HISTORY_DIR, exist_ok=True)
+            timestamp = datetime.utcnow()
+            search_data = {
+                "query": query,
+                "timestamp": timestamp.isoformat() + "Z",
+                "products": scraped_products
+            }
+            filename = f"search_{query.replace(' ', '_')}_{timestamp.strftime('%Y%m%d_%H%M%S')}.json"
+            filepath = os.path.join(SEARCH_HISTORY_DIR, filename)
+            with open(filepath, 'w') as f:
+                json.dump(search_data, f, indent=4)
+            print(f"✅ Search results for '{query}' saved to {filepath}")
+        except Exception as e:
+            print(f"⚠️ Could not save search history: {e}")
+
+        return scraped_products
+    except Exception as e:
+        error_message = f"An error occurred while searching for '{query}': {e}"
+        print(f"❌ {error_message}")
+        return {"error": error_message}
