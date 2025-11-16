@@ -316,27 +316,66 @@ async def add_product_to_cart(context, session_id: str, product_name: str, quant
             await proceed_button.click()
             print("✅ Clicked 'Proceed' on the checkout strip.")
             await page.wait_for_timeout(2000) # Wait for address page to load
-
+            
             saved_address_selector = 'div[class*="AddressList__AddressItemWrapper"]'
             
-            # Check if a saved address exists
+            # Step 1: Check for and select a saved address
             try:
                 await page.locator(saved_address_selector).first.wait_for(state="visible", timeout=7000)
                 print("- Found a saved address. Selecting it.")
                 await page.locator(saved_address_selector).first.click()
                 print("✅ First saved address selected.")
-
-                # Click the "Proceed To Pay" button
-                proceed_to_pay_selector = 'div[class*="CheckoutStrip__AmountContainer"]:has-text("Proceed To Pay")'
-                proceed_to_pay_button = page.locator(proceed_to_pay_selector).first
-                await proceed_to_pay_button.wait_for(state="visible", timeout=5000)
-                await proceed_to_pay_button.click()
-                print("✅ Clicked 'Proceed To Pay'.")
-                return {"status": "success", "message": "Selected existing address and proceeded to payment."}
             except TimeoutError:
                 # If no saved address is found, inform the user to call the add_address endpoint
                 print("- No saved address found.")
                 return {"status": "address_needed", "session_id": session_id, "message": "No saved address found. Please provide a new address."}
+
+            # Step 2: Proceed to payment
+            proceed_to_pay_selector = 'div[class*="CheckoutStrip__AmountContainer"]:has-text("Proceed To Pay")'
+            proceed_to_pay_button = page.locator(proceed_to_pay_selector).first
+            await proceed_to_pay_button.wait_for(state="visible", timeout=5000)
+            await proceed_to_pay_button.click()
+            print("✅ Clicked 'Proceed To Pay'.")
+
+            # --- Robust Wait --- Wait for the main payment options container to be visible.
+            # This ensures the entire section is loaded before we try to find a button inside it.
+            # Wait for Blinkit payment modal (React portal)
+            await page.wait_for_selector("#payment_widget")
+
+            print("Payment container detected!")
+
+
+            # Step 3: Select payment method (Cash or UPI)
+            try:
+                frame = page.frame_locator("#payment_widget")
+                # Try to select "Cash" option first
+                cash_option_selector = 'div[role="button"][aria-label="Cash"]'
+                cash_option = frame.locator(cash_option_selector)
+                await cash_option.wait_for(state="visible", timeout=5000) # Use a shorter timeout
+                await cash_option.click()
+                print("✅ Selected 'Cash' as the payment method.")
+
+                # Click the final "Pay Now" button for cash on delivery
+                try:
+                    frame = page.frame_locator("#payment_widget")
+                    pay_now_button = frame.locator('div[class*="Zpayments__Button"]:has-text("Pay Now")').first
+                    await pay_now_button.wait_for(state="visible", timeout=5000)
+                    await pay_now_button.click()
+                    print("✅ Clicked 'Pay Now' to place the order.")
+                except Exception as pay_now_error:
+                    print(f"⚠️ Could not click 'Pay Now' for cash order: {pay_now_error}")
+
+            except Exception:
+                print("⚠️ 'Cash' option not found, attempting to select 'Add new UPI ID'.")
+                # If cash is not available, try to click "Add new UPI ID"
+                frame = page.frame_locator("#payment_widget")
+                upi_option_selector = 'div[role="button"][aria-label="Add new UPI ID"]'
+                upi_option = frame.locator(upi_option_selector)
+                await upi_option.wait_for(state="visible", timeout=5000)
+                await upi_option.click()
+                print("✅ Clicked 'Add new UPI ID'. Ready for UPI input.")
+                return {"status": "upi_id_needed", "session_id": session_id, "message": "Cash not available. Please provide a UPI ID via the /submit-upi endpoint."}
+
         else:
             print("⚠️ Cart appears empty, not clicking the cart button.")
             return {"status": "error", "message": "Cart is empty."}
@@ -395,6 +434,32 @@ async def add_address(context, session_id: str, location: str, house_number: str
     except Exception as address_error:
         print(f"❌ An error occurred while adding address: {address_error}")
         return {"status": "error", "message": str(address_error)}
+
+async def submit_upi_and_pay(context, upi_id: str):
+    """
+    Enters the provided UPI ID and clicks the final pay button.
+    """
+    page = context.pages[0]
+    print(f"\n--- Submitting UPI ID: {upi_id} ---")
+    try:
+        # Locate the UPI input field, click it, and fill it.
+        # This selector assumes an input field becomes visible after clicking "Add new UPI ID".
+        frame = page.frame_locator("#payment_widget")
+        upi_input_selector = 'input[class*="sc-1yzxt5f-9"]'
+        upi_input = frame.locator(upi_input_selector)
+        await upi_input.wait_for(state="visible", timeout=7000)
+        await upi_input.click()
+        await upi_input.fill(upi_id)
+        print(f"✅ Filled UPI ID: '{upi_id}'.")
+
+        # Click the final "Pay" button
+        pay_button = frame.locator('button[class*="SingleInputField__DesktopButton"]:has-text("Checkout")').first
+        await pay_button.click()
+        print("✅ Clicked final 'Checkout' button to complete the transaction.")
+        return {"status": "success", "message": "UPI payment initiated successfully."}
+    except Exception as e:
+        print(f"❌ An error occurred during UPI submission: {e}")
+        raise
 
 async def search_multiple_products(p, queries: list[str]) -> tuple[any, any, dict]:
     """

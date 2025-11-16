@@ -8,7 +8,7 @@ import os
 # Add the root directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.agents.blinkit.blinkit_automation import automate_blinkit, login, AUTH_FILE_PATH, enter_otp_and_save_session, search_multiple_products, add_product_to_cart, add_address
+from app.agents.blinkit.blinkit_automation import automate_blinkit, login, AUTH_FILE_PATH, enter_otp_and_save_session, search_multiple_products, add_product_to_cart, add_address, submit_upi_and_pay
 from app.prompts.blinkit_prompts.blinkit_prompts import analyze_query
 
 router = APIRouter()
@@ -39,6 +39,10 @@ class AddAddressRequest(BaseModel):
     location: str
     house_number: str
     name: str
+
+class UpiRequest(BaseModel):
+    session_id: str
+    upi_id: str
 
 @router.post("/login")
 async def start_login(request: LoginRequest):
@@ -125,3 +129,16 @@ async def add_new_address(request: AddAddressRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add new address: {e}")
+
+@router.post("/submit-upi")
+async def submit_upi_payment(request: UpiRequest):
+    session = ACTIVE_SESSIONS.get(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+
+    context = session["context"]
+    try:
+        result = await submit_upi_and_pay(context, request.upi_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to submit UPI and pay: {e}")
