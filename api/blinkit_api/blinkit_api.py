@@ -8,7 +8,7 @@ import os
 # Add the root directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.agents.blinkit.blinkit_automation import automate_blinkit, login, AUTH_FILE_PATH, enter_otp_and_save_session, search_multiple_products, add_product_to_cart
+from app.agents.blinkit.blinkit_automation import automate_blinkit, login, AUTH_FILE_PATH, enter_otp_and_save_session, search_multiple_products, add_product_to_cart, add_address
 from app.prompts.blinkit_prompts.blinkit_prompts import analyze_query
 
 router = APIRouter()
@@ -33,7 +33,12 @@ class AddToCartRequest(BaseModel):
     session_id: str
     product_name: str
     quantity: int
+
+class AddAddressRequest(BaseModel):
+    session_id: str
     location: str
+    house_number: str
+    name: str
 
 @router.post("/login")
 async def start_login(request: LoginRequest):
@@ -103,7 +108,20 @@ async def add_item_to_cart(request: AddToCartRequest):
 
     context = session["context"]
     try:
-        await add_product_to_cart(context, request.product_name, request.quantity, request.location)
-        return {"status": "success", "message": f"Process to add '{request.product_name}' to cart initiated."}
+        result = await add_product_to_cart(context, request.session_id, request.product_name, request.quantity)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add item to cart: {e}")
+
+@router.post("/add-address")
+async def add_new_address(request: AddAddressRequest):
+    session = ACTIVE_SESSIONS.get(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+
+    context = session["context"]
+    try:
+        result = await add_address(context, request.session_id, request.location, request.house_number, request.name)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add new address: {e}")

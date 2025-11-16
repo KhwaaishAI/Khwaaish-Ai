@@ -287,7 +287,7 @@ async def enter_otp_and_save_session(context, otp: str):
     await context.storage_state(path=AUTH_FILE_PATH)
     print(f"✅ Authentication state saved to {AUTH_FILE_PATH}")
 
-async def add_product_to_cart(context, product_name: str, quantity: int, location: str):
+async def add_product_to_cart(context, session_id: str, product_name: str, quantity: int):
     """Finds a specific product on the current page and adds it to the cart."""
     page = context.pages[0]
     print(f"\nAttempting to add '{product_name}' (Quantity: {quantity}) to cart.")
@@ -308,50 +308,93 @@ async def add_product_to_cart(context, product_name: str, quantity: int, locatio
         if "item" in cart_text or "items" in cart_text:
             await cart_button.click()
             print("✅ Clicked the main cart button to view cart summary.")
+
+            # Click the "Proceed" button on the checkout strip
+            proceed_selector = 'div[class*="CartAddressCheckout__Container"] div[tabindex="0"][class*="CheckoutStrip__AmountContainer"]'
+            proceed_button = page.locator(proceed_selector).first
+            await proceed_button.wait_for(state="visible", timeout=7000)
+            await proceed_button.click()
+            print("✅ Clicked 'Proceed' on the checkout strip.")
+            await page.wait_for_timeout(2000) # Wait for address page to load
+
+            saved_address_selector = 'div[class*="AddressList__AddressItemWrapper"]'
             
-            # Now, click the "Proceed" button on the checkout strip
+            # Check if a saved address exists
             try:
-                # Target the main clickable container for the "Proceed" action by its classes.
-                proceed_selector = 'div.CheckoutStrip__AmountContainer-sc-1f2bdhy-17.ilqCAS'
-                proceed_button = page.locator(proceed_selector).first
+                await page.locator(saved_address_selector).first.wait_for(state="visible", timeout=7000)
+                print("- Found a saved address. Selecting it.")
+                await page.locator(saved_address_selector).first.click()
+                print("✅ First saved address selected.")
 
-           
-                # zoom = 110
-                # print(f"- Adjusting zoom to {zoom}% to find 'Proceed' button...")
-                # await page.evaluate(f"document.body.style.zoom = '{zoom}%'")
-                   
-                await asyncio.sleep(3)
-                await proceed_button.wait_for(state="visible", timeout=5000)
-
-                # If the button is visible, click it immediately and exit the loop.
-                await proceed_button.click(timeout=1000)
-                # print(f"✅ Clicked 'Proceed' on the checkout strip at {zoom}% zoom.")
-
-
-                # After clicking proceed, add the new address
-                try:
-                    add_address_selector = 'div.CartAddress__AddAddressContainer-sc-1jv0-10:has-text("Add a new address")'
-                    add_address_button = page.locator(add_address_selector).first
-                    await add_address_button.wait_for(state="visible", timeout=5000)
-                    await add_address_button.click()
-                    print("✅ Clicked 'Add a new address'.")
-
-                    # Fill in the new address
-                    address_input_selector = 'div.Select-input > input'
-                    await page.locator(address_input_selector).first.fill(location)
-                    print(f"- Filled address: '{location}'. Waiting for suggestions...")
-                    await page.wait_for_timeout(2000) # Wait for suggestions to load
-                    await page.keyboard.press("ArrowDown")
-                    await page.keyboard.press("Enter")
-                    print("✅ Selected the first address suggestion.")
-                except Exception as address_error:
-                    print(f"❌ Could not add new address: {address_error}")
-            except Exception as proceed_error:
-                print(f"❌ Could not click the 'Proceed' button: {proceed_error}")
+                # Click the "Proceed To Pay" button
+                proceed_to_pay_selector = 'div[class*="CheckoutStrip__AmountContainer"]:has-text("Proceed To Pay")'
+                proceed_to_pay_button = page.locator(proceed_to_pay_selector).first
+                await proceed_to_pay_button.wait_for(state="visible", timeout=5000)
+                await proceed_to_pay_button.click()
+                print("✅ Clicked 'Proceed To Pay'.")
+                return {"status": "success", "message": "Selected existing address and proceeded to payment."}
+            except TimeoutError:
+                # If no saved address is found, inform the user to call the add_address endpoint
+                print("- No saved address found.")
+                return {"status": "address_needed", "session_id": session_id, "message": "No saved address found. Please provide a new address."}
         else:
             print("⚠️ Cart appears empty, not clicking the cart button.")
+            return {"status": "error", "message": "Cart is empty."}
     except Exception as e:
-        print(f"❌ Could not click the main cart button: {e}")
+        print(f"❌ An error occurred during the add-to-cart and proceed flow: {e}")
+        raise
+
+async def add_or_select_address(context, location: str, house_number: str, name: str):
+    """
+    This function is deprecated and will be replaced by proceed_to_address and add_address.
+    """
+    pass
+
+async def add_address(context, session_id: str, location: str, house_number: str, name: str):
+    """
+    Adds a new address to the user's account.
+    """
+    page = context.pages[0]
+    print("\n--- Adding New Address ---")
+    try:
+        # Click "Add a new address"
+        add_address_selector = 'div[class*="CartAddress__AddAddressContainer"]:has(div[class*="CartAddress__PlusIcon"]):has-text("Add a new address")'
+        add_address_button = page.locator(add_address_selector).first
+        await add_address_button.wait_for(state="visible", timeout=5000)
+        await add_address_button.click()
+        print("✅ Clicked 'Add a new address'.")
+
+        # Fill in the new address details
+        address_input_selector = 'div.Select-input > input'
+        await page.locator(address_input_selector).first.fill(location)
+        print(f"- Filled address: '{location}'. Waiting for suggestions...")
+        await page.wait_for_timeout(3000) # Wait for suggestions to load
+        await page.keyboard.press("ArrowDown")
+        await page.keyboard.press("Enter")
+        print("✅ Selected the first address suggestion.")
+        await page.wait_for_timeout(1000)
+
+        # Fill in house number and name
+        house_number_input = page.locator('div[class*="TextInput__StyledTextInput"] input#address')
+        await house_number_input.click()
+        await house_number_input.fill(house_number)
+        print(f"- Filled house number: '{house_number}'.")
+        name_input = page.locator('div[class*="TextInput__StyledTextInput"] input#name')
+        await name_input.click()
+        await name_input.fill(name)
+        print(f"- Filled name: '{name}'.")
+
+        # Click the "Save Address" button to confirm
+        save_address_selector = 'div[class*="SaveAddressButton"]:has-text("Save Address")'
+        save_address_button = page.locator(save_address_selector).first
+        await save_address_button.wait_for(state="visible", timeout=5000)
+        await save_address_button.click()
+        print("✅ Clicked 'Save Address'.")
+        return {"status": "success", "message": "Successfully added new address."}
+
+    except Exception as address_error:
+        print(f"❌ An error occurred while adding address: {address_error}")
+        return {"status": "error", "message": str(address_error)}
 
 async def search_multiple_products(p, queries: list[str]) -> tuple[any, any, dict]:
     """
@@ -368,7 +411,7 @@ async def search_multiple_products(p, queries: list[str]) -> tuple[any, any, dic
     page = await context.new_page()
 
     print("Navigating to Blinkit home page to initialize session...")
-    await page.goto("https://www.blinkit.com/")
+    await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")
     print("- Allowing time for session to be recognized...")
     await page.wait_for_timeout(3000)
 
