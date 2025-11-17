@@ -83,3 +83,5 @@ node_modules/
 app/agents/ride_booking/sessions/
 
 *.html
+app/agents/blinkit/playwright_auth.json
+app/agents/blinkit/search_history/
