@@ -344,6 +344,11 @@ async def add_product_to_cart(context, session_id: str, product_name: str, quant
 
             print("Payment container detected!")
 
+            # --- Enhanced Wait ---
+            # Before checking for payment options, wait for the section containing them to be visible inside the iframe.
+            # This prevents race conditions where we look for an element before it's rendered.
+            frame = page.frame_locator("#payment_widget")
+            await frame.locator('section[class*="sc-1jt9o4p-0"]').first.wait_for(state="visible", timeout=10000)
 
             # Step 3: Select payment method (Cash or UPI)
             try:
@@ -357,8 +362,7 @@ async def add_product_to_cart(context, session_id: str, product_name: str, quant
 
                 # Click the final "Pay Now" button for cash on delivery
                 try:
-                    frame = page.frame_locator("#payment_widget")
-                    pay_now_button = frame.locator('div[class*="Zpayments__Button"]:has-text("Pay Now")').first
+                    pay_now_button = page.locator(".Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3").first
                     await pay_now_button.wait_for(state="visible", timeout=5000)
                     await pay_now_button.click()
                     print("✅ Clicked 'Pay Now' to place the order.")
@@ -368,13 +372,32 @@ async def add_product_to_cart(context, session_id: str, product_name: str, quant
             except Exception:
                 print("⚠️ 'Cash' option not found, attempting to select 'Add new UPI ID'.")
                 # If cash is not available, try to click "Add new UPI ID"
-                frame = page.frame_locator("#payment_widget")
-                upi_option_selector = 'div[role="button"][aria-label="Add new UPI ID"]'
-                upi_option = frame.locator(upi_option_selector)
-                await upi_option.wait_for(state="visible", timeout=5000)
-                await upi_option.click()
-                print("✅ Clicked 'Add new UPI ID'. Ready for UPI input.")
-                return {"status": "upi_id_needed", "session_id": session_id, "message": "Cash not available. Please provide a UPI ID via the /submit-upi endpoint."}
+                
+                # First, check if a saved UPI ID tile is already visible by looking for its container
+                # that has the specific notice text inside it. This is more robust than class names.
+                saved_upi_selector = 'div[class*="LinkedUPITile__Container"]:has-text("Please press continue to complete the purchase.")'
+                saved_upi_tile = frame.locator(saved_upi_selector).first
+                
+                try:
+                    await saved_upi_tile.wait_for(state="visible", timeout=3000) # Quick check
+                    print("- Found a saved UPI ID. Selecting it.")
+                    # await saved_upi_tile.click()
+                    
+                    pay_now_button = page.locator(".Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3").first
+
+                    await pay_now_button.wait_for(state="visible", timeout=5000)
+                    await pay_now_button.click()
+                    print("✅ Clicked 'Pay Now' to place the order with the saved UPI ID.")
+
+                except TimeoutError:
+                    # If no saved UPI is found, click "Add new UPI ID" and ask for input
+                    print("- No saved UPI ID found. Clicking 'Add new UPI ID'.")
+                    upi_option_selector = 'div[role="button"][aria-label="Add new UPI ID"]'
+                    upi_option = frame.locator(upi_option_selector)
+                    await upi_option.wait_for(state="visible", timeout=5000)
+                    await upi_option.click()
+                    print("✅ Clicked 'Add new UPI ID'. Ready for UPI input.")
+                    return {"status": "upi_id_needed", "session_id": session_id, "message": "Cash not available. Please provide a UPI ID via the /submit-upi endpoint."}
 
         else:
             print("⚠️ Cart appears empty, not clicking the cart button.")
