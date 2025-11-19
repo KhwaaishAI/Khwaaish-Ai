@@ -25,9 +25,22 @@ app = FastAPI(
 # -------------------------------------------------
 # CORS middleware
 # -------------------------------------------------
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins="*",  # update with frontend origins in production
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins="*",  # update with frontend origins in production
+    allow_origins=[
+        "http://localhost:5173",
+        "https://khwaaish.com",
+        "https://www.khwaaish.com",
+        "https://api.khwaaish.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
