@@ -229,3 +229,142 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
     finally:
         await browser.close()
         print("\nBrowser closed. Script finished.")
+
+async def login_zepto(mobile_number: str, location: str, playwright):
+    """
+    Launches Playwright, navigates to Zepto, sets location, and performs login.
+    Returns the browser and page objects to continue the session.
+    """
+    print("\nStarting browser automation with Playwright for Zepto Login...")
+    browser = await playwright.chromium.launch(headless=False, slow_mo=100)
+    context = await browser.new_context()
+    page = await context.new_page()
+
+    try:
+        print("➡️ Navigating to https://www.zeptonow.com/")
+        await page.goto("https://www.zeptonow.com/")
+        await page.wait_for_load_state('networkidle')
+        print("✅ Zepto homepage loaded.")
+
+        print("\n➡️ Clicking on 'Select Location' button...")
+        try:
+            select_location_button = page.get_by_role("button", name="Select Location")
+            await select_location_button.click(timeout=5000)
+            print("✅ 'Select Location' button clicked.")
+        except Exception as e:
+            print(f"❌ Error clicking 'Select Location' button: {e}")
+            await browser.close()
+            raise
+
+        print(f"\n➡️ Typing location '{location}' into the search bar...")
+        await asyncio.sleep(1)
+        location_input = page.get_by_placeholder("Search a new address")
+        await asyncio.sleep(1)
+        await location_input.fill(location)
+        print("✅ Location entered.")
+        await asyncio.sleep(1)
+
+        print("\n➡️ Waiting for location suggestions and selecting the first one...")
+        first_suggestion_selector = 'div[data-testid="address-search-item"]'
+        await page.wait_for_selector(first_suggestion_selector, timeout=10000)
+        print("✅ Suggestions appeared.")
+        await asyncio.sleep(1)
+        
+        await page.locator(first_suggestion_selector).first.click()
+        print("✅ First location suggestion selected.")
+        await asyncio.sleep(1)
+
+        print("\n➡️ Clicking 'Confirm & Continue'...")
+        confirm_button = page.get_by_test_id("location-confirm-btn")
+        await confirm_button.click(timeout=5000)
+        print("✅ Location confirmed and set successfully!")
+        await page.wait_for_load_state('networkidle')
+
+
+        print("\n➡️ Clicking on 'Login' button...")
+        try:
+            login_button = page.get_by_test_id("login-btn")
+            await login_button.click(timeout=5000)
+            print("✅ Login button clicked successfully.")
+            await page.wait_for_timeout(2000)
+        except Exception as e:
+            print(f"❌ Error clicking Login button: {e}")
+            await browser.close()
+            raise
+
+        print("\n➡️ Entering phone number...")
+        try:
+            phone_input = page.get_by_placeholder("Enter Phone Number")
+            await phone_input.fill(mobile_number)
+            print("✅ Phone number entered successfully.")
+            await page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"❌ Error entering phone number: {e}")
+            await browser.close()
+            raise
+
+        print("\n➡️ Clicking 'Continue' button...")
+        try:
+            continue_button = page.get_by_role("button", name="Continue")
+            await continue_button.click(timeout=5000)
+            print("✅ Continue button clicked successfully.")
+        except Exception as e:
+            print(f"❌ Error clicking Continue button: {e}")
+            await browser.close()
+            raise
+
+        print("\n✅ Login initiated. Browser is waiting for OTP.")
+        return browser, page
+
+    except Exception as e:
+        print(f"❌ An unexpected error occurred: {e}")
+        await browser.close()
+        print("\nBrowser closed due to error.")
+        raise
+
+async def enter_otp_zepto(page, otp: str):
+    """
+    Enters the OTP on the provided page.
+    """
+    print(f"\n➡️ Entering OTP: {otp}")
+    try:
+        # The OTP input is a single input field that visually looks like 6 boxes.
+        # We can target it and fill it directly.
+        otp_input_selector = 'input[inputmode="numeric"][maxlength="6"]'
+        await page.wait_for_selector(otp_input_selector, timeout=10000)
+        
+        await page.locator(otp_input_selector).first.fill(otp)
+        
+        print("✅ OTP entered successfully.")
+        await page.wait_for_timeout(5000) # Wait for login to complete
+
+    except Exception as e:
+        print(f"❌ Error entering OTP: {e}")
+        raise
+
+async def search_with_saved_session(shopping_list: dict, session_path: str, p):
+    """
+    Launches a browser, loads a saved session state, and processes a shopping list.
+    """
+    print("\nStarting browser automation with a saved session...")
+    browser = await p.chromium.launch(headless=False, slow_mo=100)
+    
+    try:
+        # Create a new context with the saved storage state
+        context = await browser.new_context(storage_state=session_path)
+        page = await context.new_page()
+        
+        print("➡️ Navigating to Zepto homepage to initialize session...")
+        await page.goto("https://www.zeptonow.com/", wait_until="networkidle")
+        print("✅ Homepage loaded with saved session.")
+
+        print("\n➡️ Preparing to add items to cart...")
+        for item, quantity in shopping_list.items():
+            await search_and_add_item(page, item, quantity)
+        
+        print("\n✅ All items processed. The browser will close in 10 seconds.")
+        await asyncio.sleep(10)
+
+    finally:
+        await browser.close()
+        print("\nBrowser closed. Logged-in search finished.")
