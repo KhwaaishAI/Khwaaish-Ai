@@ -10,6 +10,23 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 
 from app.prompts.zepto_prompts.zepto_prompts import find_best_match
 
+async def _click_robust(page, candidates: list[tuple[str, any]], timeout: int = 5000):
+    """Try multiple locators to click the same UI with fallbacks."""
+    last_err = None
+    for desc, loc in candidates:
+        try:
+            await loc.wait_for(state="visible", timeout=timeout)
+            await loc.scroll_into_view_if_needed()
+            await loc.click(timeout=timeout)
+            print(f"✅ Clicked {desc}.")
+            return True
+        except Exception as e:
+            last_err = e
+            continue
+    if last_err:
+        raise last_err
+    return False
+
 async def search_and_add_item(page, item_name: str, quantity: int):
     """Searches for an item, selects the best match, and adds it to the cart."""
     print(f"\nProcessing item: '{item_name}' (Quantity: {quantity})")
@@ -19,7 +36,7 @@ async def search_and_add_item(page, item_name: str, quantity: int):
     await page.goto(search_url)
 
     try:
-        product_card_selector = 'div.c5SZXs.ccdFPa'
+        product_card_selector = 'a.B4vNQ'
         await page.wait_for_selector(product_card_selector, timeout=15000)
         print("- Product results page loaded successfully.")
     except TimeoutError:
@@ -36,14 +53,13 @@ async def search_and_add_item(page, item_name: str, quantity: int):
         card = product_locator.nth(i)
         try:
             name_elem = card.locator('div[data-slot-id="ProductName"] span').first
-            price_elem = card.locator('p.cGFDG0.cB6nZL span.cnL9fm').first
+            price_elem = card.locator('div[data-slot-id="EdlpPrice"] span').first
             
             if not await name_elem.is_visible(timeout=1000) or not await price_elem.is_visible(timeout=1000):
                 continue
             
             name = (await name_elem.text_content(timeout=2000)).strip()
-            price_parent = price_elem.locator('..')
-            price_text = await price_parent.text_content(timeout=2000)
+            price_text = (await price_elem.text_content(timeout=2000)).strip()
             price = float(re.sub(r'[^\d.]', '', price_text))
             
             scraped_products.append({'name': name, 'price': price, 'card': card})
@@ -69,8 +85,16 @@ async def search_and_add_item(page, item_name: str, quantity: int):
     print(f"- Final selection: '{best_match_product['name']}' at ₹{best_match_product['price']}")
     
     try:
-        add_button = selected_card.locator('button.ciE0m4.c2lTrV.cuPUm6.cVtNX5').first
-        await add_button.click(timeout=5000)
+        await _click_robust(
+            page,
+            [
+                ("Card 'ADD' button by text", selected_card.get_by_role("button", name=re.compile(r"^ADD$", re.I)).first),
+                ("Card 'ADD' by data attribute", selected_card.locator('button[data-show-variant-selector="false"]').first),
+                ("Card 'ADD' by class variant 1", selected_card.locator('button.ciE0m4.c2lTrV.cuPUm6.cnCei3').first),
+                ("Card 'ADD' by class variant 2", selected_card.locator('button.ciE0m4.c2lTrV.cuPUm6.cVtNX5').first),
+            ],
+            timeout=6000,
+        )
         print("- Clicked 'ADD' once.")
         await page.wait_for_timeout(1000)
         
@@ -95,6 +119,327 @@ async def search_and_add_item(page, item_name: str, quantity: int):
     except Exception as e:
         print(f"❌ An unexpected error occurred while adding to cart: {e}")
 
+async def search_products_zepto(page, query: str, max_items: int = 20):
+    """Navigate to Zepto search and return a list of products with name and price."""
+    search_url = f"https://www.zeptonow.com/search?query={quote_plus(query)}"
+    print(f"- Navigating to search page: {search_url}")
+    await page.goto(search_url)
+    try:
+        product_card_selector = 'a.B4vNQ'
+        await page.wait_for_selector(product_card_selector, timeout=15000)
+    except TimeoutError:
+        print("⚠️ No product cards rendered for Zepto search.")
+        return []
+
+    product_locator = page.locator(product_card_selector)
+    count = await product_locator.count()
+    scraped = []
+    for i in range(min(count, max_items)):
+        card = product_locator.nth(i)
+        try:
+            name_elem = card.locator('div[data-slot-id="ProductName"] span').first
+            price_elem = card.locator('div[data-slot-id="EdlpPrice"] span').first
+            if not await name_elem.is_visible(timeout=1000) or not await price_elem.is_visible(timeout=1000):
+                continue
+            name = (await name_elem.text_content(timeout=2000)).strip()
+            price_text = (await price_elem.text_content(timeout=2000)).strip()
+            price = float(re.sub(r'[^\d.]', '', price_text))
+            scraped.append({"name": name, "price": price})
+        except Exception:
+            continue
+    if not scraped:
+        print("⚠️ Scraper could not extract product name/price despite cards being present. Check selectors.")
+    return scraped
+
+async def add_to_cart_and_checkout(page, product_name: str, quantity: int, upi_id: str | None = None, address_details: dict | None = None):
+    """Add a specific product then open cart, resolve address, click Click to Pay, and optionally auto-complete UPI."""
+    await search_and_add_item(page, product_name, quantity)
+    # Cart button
+    await _click_robust(
+        page,
+        [
+            ("cart button [data-testid=cart-btn]", page.locator('button[data-testid="cart-btn"]').first),
+            ("Cart button by aria-label", page.get_by_role("button", name="Cart").first),
+        ],
+        timeout=7000,
+    )
+    await page.wait_for_timeout(1000)
+
+    await _handle_address_requirement(page, address_details)
+
+    # Click to Pay
+    await _click_robust(
+        page,
+        [
+            ("Click to Pay primary button (class)", page.locator('button.my-2\\.5.h-\\[52px\\].w-full.rounded-xl.text-center.bg-skin-primary').first),
+            ("Click to Pay by text", page.get_by_role("button", name=re.compile(r"Click to Pay", re.I)).first),
+        ],
+        timeout=7000,
+    )
+
+    await _handle_address_requirement(page, address_details)
+
+    upi_status = "not_requested"
+    if upi_id:
+        print("- UPI ID provided; attempting to complete payment via UPI.")
+        success = await _handle_upi_payment(page, upi_id)
+        upi_status = "completed" if success else "not_found"
+        if success:
+            print("✅ UPI Verify and Pay clicked successfully.")
+        else:
+            print("⚠️ Could not automatically locate UPI controls after Click to Pay.")
+    else:
+        print("ℹ️ No UPI ID supplied in request; leaving payment screen for manual completion.")
+    return {"added": True, "upi_status": upi_status}
+
+async def _handle_address_requirement(page, address_details: dict | None):
+    """Ensures an address is selected by prioritizing saved cards, else adds new if data provided."""
+    selected = await _select_saved_address_if_needed(page)
+    if selected:
+        return True
+    if address_details:
+        added = await _add_address_if_form_present(page, address_details)
+        if added:
+            return True
+    return False
+
+async def _select_saved_address_if_needed(page, timeout: int = 6000):
+    """If the address chooser modal appears, select the first saved address and confirm."""
+    try:
+        modal_locator = page.locator('div:has-text("Select an Address")').first
+        try:
+            await modal_locator.wait_for(state="visible", timeout=timeout)
+        except Exception:
+            try:
+                await _click_robust(
+                    page,
+                    [
+                        ("Add address to proceed button", page.locator('button:has-text("Add address to proceed")').first),
+                        ("Add address footer button", page.locator('button:has-text("Add Address to proceed")').first),
+                    ],
+                    timeout=4000,
+                )
+                await modal_locator.wait_for(state="visible", timeout=timeout)
+            except Exception:
+                return False
+        # Prefer the saved address tile within the saved list container
+        saved_tile = modal_locator.locator('div.fsVuP div.cgG1vl').first
+        await saved_tile.wait_for(state="visible", timeout=2000)
+        await saved_tile.click()
+        print("✅ Selected the first saved address from the modal.")
+        await page.wait_for_timeout(500)
+        try:
+            # Click the Save Address button in the modal after choosing the tile
+            await _click_robust(
+                page,
+                [
+                    ("Save Address button in modal", modal_locator.locator('button:has-text("Save Address")').first),
+                    ("Save Address button global fallback", page.locator('button:has-text("Save Address")').first),
+                ],
+                timeout=4000,
+            )
+            print("✅ Clicked 'Save Address' in the address modal.")
+            await page.wait_for_timeout(800)
+        except Exception:
+            pass
+        try:
+            await _click_robust(
+                page,
+                [
+                    ("Confirm & Continue modal button", page.locator('button.cpG2SV.cdW7ko.c0WLye.cBCT4J').first),
+                    ("Confirm & Continue [data-testid]", page.get_by_test_id("location-confirm-btn")),
+                ],
+                timeout=4000,
+            )
+            print("✅ Confirmed address via 'Confirm & Continue'.")
+            await page.wait_for_timeout(1000)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+async def _add_address_if_form_present(page, address_details: dict | None, timeout: int = 5000):
+    """Fill and save the Add Address form when address details are provided."""
+    if not address_details:
+        return False
+
+    modal_selector = 'div:has-text("Add Address Details")'
+    modal = page.locator(modal_selector).first
+
+    async def _ensure_modal_visible():
+        try:
+            await modal.wait_for(state="visible", timeout=timeout)
+            return True
+        except Exception:
+            try:
+                await _click_robust(
+                    page,
+                    [
+                        ("Add Address to proceed button", page.locator('button:has-text("Add Address to proceed")').first),
+                        ("Add New Address option", page.locator('div:has-text("Add New Address")').first),
+                    ],
+                    timeout=3000,
+                )
+                await page.wait_for_timeout(800)
+                await modal.wait_for(state="visible", timeout=timeout)
+                return True
+            except Exception:
+                return False
+
+    if not await _ensure_modal_visible():
+        return False
+
+    tag = (address_details.get("tag") or "").strip()
+    if tag:
+        try:
+            await _click_robust(
+                page,
+                [
+                    (f"Save address as {tag}", modal.locator(f'button:has-text("{tag}")').first),
+                    (f"Save address label {tag}", modal.locator(f'label:has-text("{tag}")').first),
+                ],
+                timeout=3000,
+            )
+        except Exception:
+            pass
+
+    building_type = (address_details.get("building_type") or "").strip()
+    if building_type:
+        try:
+            await _click_robust(
+                page,
+                [
+                    (f"Building type {building_type}", modal.locator(f'button:has-text("{building_type}")').first),
+                    (f"Building type label {building_type}", modal.locator(f'label:has-text("{building_type}")').first),
+                ],
+                timeout=3000,
+            )
+        except Exception:
+            pass
+
+    async def _fill_field(selector: str, value: str | None, description: str):
+        if not value:
+            return
+        try:
+            field = modal.locator(selector).first
+            await field.wait_for(state="visible", timeout=2000)
+            await field.fill(value)
+            print(f"   - Filled {description}: {value}")
+        except Exception:
+            print(f"⚠️ Unable to fill {description} (selector {selector}).")
+
+    await _fill_field('input[name="flatDetails"]', address_details.get("flat_details"), "Flat/Floor")
+    await _fill_field('input[name="buildingName"]', address_details.get("building_name"), "Building name")
+    await _fill_field('input[name="landmark"]', address_details.get("landmark"), "Landmark")
+    await _fill_field('input[name="receiverName"]', address_details.get("receiver_name"), "Receiver name")
+
+    try:
+        await _click_robust(
+            page,
+            [
+                ("Save Address button", modal.locator('button:has-text("Save Address")').first),
+                ("Save Address button (fallback)", page.locator('button:has-text("Save Address")').first),
+            ],
+            timeout=5000,
+        )
+        print("✅ Address form submitted via 'Save Address'.")
+    except Exception:
+        return False
+
+    try:
+        await modal.wait_for(state="hidden", timeout=8000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(1500)
+    return True
+
+async def _handle_upi_payment(page, upi_id: str | None) -> bool:
+    """Attempt to select UPI option, fill VPA, and click Verify & Pay."""
+    if not upi_id:
+        return False
+    await asyncio.sleep(2)
+    context = page.context
+    for attempt in range(4):
+        surfaces = []
+        for p in context.pages:
+            surfaces.append(p)
+            for frame in p.frames:
+                if frame is not p.main_frame:
+                    surfaces.append(frame)
+        for surface in surfaces:
+            try:
+                if await _try_upi_on_surface(surface, upi_id):
+                    return True
+            except Exception:
+                continue
+        await asyncio.sleep(1.5)
+    return False
+
+async def _try_upi_on_surface(surface, upi_id: str) -> bool:
+    """Attempt the UPI flow on a specific page/frame surface."""
+    upi_candidates = [
+        ("UPI nav icon", surface.locator('[testid="nvb_icon_upi"]').first),
+        ("UPI nav row", surface.locator('div:has([testid="nvb_icon_upi"])').first),
+        ("UPI nav text", surface.locator('div:has-text("UPI")').first),
+    ]
+    upi_clicked = False
+    for desc, locator in upi_candidates:
+        try:
+            await locator.wait_for(state="visible", timeout=2000)
+            await locator.scroll_into_view_if_needed()
+            await locator.click(timeout=2000)
+            print(f"✅ Selected UPI option via {desc}.")
+            upi_clicked = True
+            break
+        except Exception:
+            continue
+    if not upi_clicked:
+        return False
+
+    await asyncio.sleep(0.3)
+    input_candidates = [
+        ("UPI input [testid]", surface.locator('input[testid="edt_vpa"]').first),
+        ("UPI input by id", surface.locator('#20000267').first),
+        ("UPI input by placeholder", surface.locator('input[placeholder*="upi"]').first),
+    ]
+    filled = False
+    for desc, locator in input_candidates:
+        try:
+            await locator.wait_for(state="visible", timeout=2000)
+            await locator.fill(upi_id)
+            print(f"✅ Filled UPI ID via {desc}.")
+            filled = True
+            break
+        except Exception:
+            continue
+    if not filled:
+        return False
+
+    await asyncio.sleep(0.3)
+    verify_candidates = [
+        ("Verify button [testid]", surface.locator('[testid="btn_enabled"]').first),
+        ("Verify div role button", surface.locator('div[role="button"]:has-text("Verify and Pay")').first),
+        ("Verify button element", surface.locator('button:has-text("Verify and Pay")').first),
+        ("Verify text", surface.locator('text="Verify and Pay"').first),
+    ]
+    for desc, locator in verify_candidates:
+        try:
+            await locator.wait_for(state="visible", timeout=4000)
+            await locator.scroll_into_view_if_needed()
+            try:
+                await locator.click(timeout=4000)
+            except Exception:
+                try:
+                    await locator.focus()
+                    await locator.press("Enter")
+                except Exception:
+                    continue
+            print(f"✅ Clicked {desc}.")
+            return True
+        except Exception:
+            continue
+    return False
 async def automate_zepto(shopping_list: dict, location: str, mobile_number: str, p):
     """
     Launches Playwright, navigates to Zepto, sets location, and processes the shopping list.
@@ -272,25 +617,44 @@ async def login_zepto(mobile_number: str, location: str, playwright):
         
         await page.locator(first_suggestion_selector).first.click()
         print("✅ First location suggestion selected.")
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.5)
 
         print("\n➡️ Clicking 'Confirm & Continue'...")
-        confirm_button = page.get_by_test_id("location-confirm-btn")
-        await confirm_button.click(timeout=5000)
-        print("✅ Location confirmed and set successfully!")
-        await page.wait_for_load_state('networkidle')
+        try:
+            await _click_robust(
+                page,
+                [
+                    ("Confirm & Continue [data-testid]", page.get_by_test_id("location-confirm-btn")),
+                    ("Confirm & Continue by classes", page.locator("button.cpG2SV.cdW7ko.c0WLye.cBCT4J").first),
+                    ("Confirm & Continue role button text", page.get_by_role("button", name=re.compile(r"Confirm .* Continue|Confirm & Continue", re.I))),
+                    ("Confirm & Continue span text", page.locator('button:has(span:has-text("Confirm & Continue"))').first),
+                    ("Confirm & Continue text locator", page.locator('text="Confirm & Continue"').first),
+                    ("Confirm .* Continue text locator", page.locator('text=/Confirm .* Continue/i').first),
+                    ("Confirm & Continue div button", page.locator('div[role="button"]:has-text("Confirm & Continue")').first),
+                    ("Confirm location confirm xpath", page.locator('//button[contains(translate(normalize-space(.),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"confirm") and contains(translate(normalize-space(.),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"continue")]').first),
+                ],
+                timeout=7000,
+            )
+            print("✅ Location confirmed and set successfully!")
+            await page.wait_for_load_state('networkidle')
+        except Exception as e:
+            print(f"⚠️ 'Confirm & Continue' not clickable (possibly already applied). Proceeding to Login. Details: {e}")
+            await page.wait_for_timeout(1000)
 
 
         print("\n➡️ Clicking on 'Login' button...")
-        try:
-            login_button = page.get_by_test_id("login-btn")
-            await login_button.click(timeout=5000)
-            print("✅ Login button clicked successfully.")
-            await page.wait_for_timeout(2000)
-        except Exception as e:
-            print(f"❌ Error clicking Login button: {e}")
-            await browser.close()
-            raise
+        await _click_robust(
+            page,
+            [
+                ("Header login container [data-testid]", page.locator('div[data-testid="login-btn"]').first),
+                ("Header login span", page.locator('span[data-testid="login-btn"]').first),
+                ("Header login text", page.locator('div:has(span[data-testid="login-btn"]):has-text("login")').first),
+                ("Header login by role", page.get_by_role("button", name=re.compile(r"login", re.I)).first),
+            ],
+            timeout=6000,
+        )
+        print("✅ Login button clicked successfully.")
+        await page.wait_for_timeout(2000)
 
         print("\n➡️ Entering phone number...")
         try:
@@ -304,14 +668,16 @@ async def login_zepto(mobile_number: str, location: str, playwright):
             raise
 
         print("\n➡️ Clicking 'Continue' button...")
-        try:
-            continue_button = page.get_by_role("button", name="Continue")
-            await continue_button.click(timeout=5000)
-            print("✅ Continue button clicked successfully.")
-        except Exception as e:
-            print(f"❌ Error clicking Continue button: {e}")
-            await browser.close()
-            raise
+        await _click_robust(
+            page,
+            [
+                ("Gradient Continue button", page.locator('button:has(div:has-text("Continue"))').first),
+                ("Rounded Continue button", page.locator('button.rounded-3xl:has-text("Continue")').first),
+                ("Continue role button", page.get_by_role("button", name=re.compile(r"^Continue$", re.I)).first),
+            ],
+            timeout=7000,
+        )
+        print("✅ Continue button clicked successfully.")
 
         print("\n✅ Login initiated. Browser is waiting for OTP.")
         return browser, page

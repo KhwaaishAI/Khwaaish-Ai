@@ -8,7 +8,12 @@ import os
 # Add the root directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.agents.zepto.zepto_automation import automate_zepto, login_zepto, enter_otp_zepto, search_with_saved_session
+from app.agents.zepto.zepto_automation import (
+    login_zepto,
+    enter_otp_zepto,
+    search_products_zepto,
+    add_to_cart_and_checkout,
+)
 from app.prompts.zepto_prompts.zepto_prompts import analyze_query
 
 router = APIRouter()
@@ -28,6 +33,13 @@ class OtpRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
+    max_items: int | None = 20
+
+class AddToCartRequest(BaseModel):
+    product_name: str
+    quantity: int = 1
+    upi_id: str | None = None
+    hold_seconds: int | None = 0
     
 @router.post("/zepto/login")
 async def login(request: LoginRequest):
@@ -38,8 +50,11 @@ async def login(request: LoginRequest):
         sessions[session_id] = {"playwright": playwright, "browser": browser, "page": page}
         return {"status": "success", "message": "Login process initiated. Use the session_id to enter OTP.", "session_id": session_id}
     except Exception as e:
-        if 'playwright' in locals() and playwright.is_connected():
-            await playwright.stop()
+        try:
+            if 'playwright' in locals():
+                await playwright.stop()
+        except Exception:
+            pass
         return {"status": "error", "message": str(e)}
 
 @router.post("/zepto/enter-otp")
@@ -84,13 +99,45 @@ async def search(request: SearchRequest):
     except FileNotFoundError:
         return {"status": "error", "message": "Session data directory not found. Please log in first."}
 
-    shopping_list = analyze_query(request.query)
-    if not shopping_list:
-        return {"status": "error", "message": "Could not understand or parse the query."}
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=False, slow_mo=50)
+            context = await browser.new_context(storage_state=latest_session_file)
+            page = await context.new_page()
+            await page.goto("https://www.zeptonow.com/")
+            products = await search_products_zepto(page, request.query, max_items=(request.max_items or 20))
+            await browser.close()
+        return {"status": "success", "products": products}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.post("/zepto/add-to-cart")
+async def add_to_cart(request: AddToCartRequest):
+    session_dir = os.path.join(os.path.dirname(__file__), "session_data")
+    try:
+        session_files = [os.path.join(session_dir, f) for f in os.listdir(session_dir) if f.startswith("zepto_session_") and f.endswith(".json")]
+        if not session_files:
+            return {"status": "error", "message": "No saved login sessions found. Please log in first."}
+        latest_session_file = max(session_files, key=os.path.getmtime)
+        print(f"Using latest session file: {latest_session_file}")
+    except FileNotFoundError:
+        return {"status": "error", "message": "Session data directory not found. Please log in first."}
 
     try:
         async with async_playwright() as p:
-            await search_with_saved_session(shopping_list, latest_session_file, p)
-        return {"status": "success", "message": "Search and add to cart process completed successfully."}
+            browser = await p.chromium.launch(headless=False, slow_mo=50)
+            context = await browser.new_context(storage_state=latest_session_file)
+            page = await context.new_page()
+            await page.goto("https://www.zeptonow.com/")
+            await add_to_cart_and_checkout(page, request.product_name, request.quantity, request.upi_id, None)
+            # Keep the browser open for the user to approve the payment on phone (if requested)
+            if request.hold_seconds and request.hold_seconds > 0:
+                await page.wait_for_timeout(request.hold_seconds * 1000)
+            await browser.close()
+        return {
+            "status": "success",
+            "message": "Item added to cart and proceeded to Click to Pay.",
+            "upi_status": "provided" if request.upi_id else "not_provided",
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
