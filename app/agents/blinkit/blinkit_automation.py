@@ -16,6 +16,78 @@ from app.prompts.blinkit_prompts.blinkit_prompts import find_best_match
 AUTH_FILE_PATH = os.path.join(os.path.dirname(__file__), "playwright_auth.json")
 SEARCH_HISTORY_DIR = os.path.join(os.path.dirname(__file__), "search_history")
 
+BLINKIT_HEADLESS = os.getenv("BLINKIT_HEADLESS", "true").lower() not in {"false", "0", "no"}
+DESKTOP_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/119.0.0.0 Safari/537.36"
+)
+DEFAULT_VIEWPORT = {"width": 1366, "height": 900}
+DEFAULT_GEOLOCATION = {"latitude": 19.0760, "longitude": 72.8777}
+HEADLESS_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-sandbox",
+]
+
+
+async def _open_blinkit_page(playwright, storage_state: str | None = None, slow_mo: int = 50):
+    """Launch Chromium with human-like settings so Blinkit works reliably in headless mode."""
+    browser = await playwright.chromium.launch(
+        headless=BLINKIT_HEADLESS,
+        slow_mo=slow_mo,
+        args=HEADLESS_ARGS,
+    )
+    context = await browser.new_context(
+        storage_state=storage_state,
+        viewport=DEFAULT_VIEWPORT,
+        user_agent=DESKTOP_USER_AGENT,
+        locale="en-US",
+        timezone_id="Asia/Kolkata",
+        geolocation=DEFAULT_GEOLOCATION,
+        permissions=["geolocation"],
+    )
+    context.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+    )
+    page = await context.new_page()
+    await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")
+    return browser, context, page
+
+
+async def _wait_for_blinkit_payment_surface(page, timeout: int = 30000):
+    """Wait for Blinkit's payment iframe or a separate Juspay tab in headless mode."""
+    context = page.context
+
+    # Split the timeout between iframe detection and new window detection
+    frame_timeout = int(timeout * 0.6)
+    page_timeout = timeout - frame_timeout
+
+    try:
+        await page.wait_for_selector("#payment_widget", timeout=frame_timeout)
+        print("✅ Payment iframe (#payment_widget) detected.")
+        return "frame", page.frame_locator("#payment_widget")
+    except TimeoutError:
+        print("⚠️ Payment iframe not found within timeframe. Checking for separate Juspay page...")
+
+    # Check existing pages first (in case Juspay opened instantly)
+    for existing in context.pages:
+        if existing is page:
+            continue
+        if "juspay" in existing.url.lower():
+            print(f"✅ Found existing Juspay page: {existing.url}")
+            return "page", existing
+
+    try:
+        new_page = await context.wait_for_event("page", timeout=page_timeout)
+        await new_page.wait_for_load_state("domcontentloaded")
+        print(f"✅ New payment page opened: {new_page.url}")
+        return "page", new_page
+    except TimeoutError:
+        print("⚠️ No payment surface detected within timeout.")
+        return None, None
+
+
 async def search_and_add_item(page, item_name: str, quantity: int):
     """Searches for an item, selects the best match, and adds it to the cart."""
     print(f"\nProcessing item: '{item_name}' (Quantity: {quantity})")
@@ -93,14 +165,11 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
     """Launches Playwright to set location and process the shopping list."""
     print("\nStep 2: Starting browser automation with Playwright...")
     
-    context_options = {}
-    if os.path.exists(AUTH_FILE_PATH):
+    storage_state = AUTH_FILE_PATH if os.path.exists(AUTH_FILE_PATH) else None
+    if storage_state:
         print("- Found existing authentication file. Loading session...")
-        context_options['storage_state'] = AUTH_FILE_PATH
 
-    browser = await p.chromium.launch(headless=False, slow_mo=50)
-    context = await browser.new_context(**context_options)
-    page = await context.new_page()
+    browser, context, page = await _open_blinkit_page(p, storage_state=storage_state)
 
     print("Navigating to Blinkit...")
     await page.goto("https://www.blinkit.com/")
@@ -215,7 +284,22 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
     except Exception as e:
         print(f"❌ Error clicking 'Proceed To Pay' button: {e}")
         return
-        
+
+    surface_type, payment_surface = await _wait_for_blinkit_payment_surface(page)
+    if not payment_surface:
+        raise TimeoutError("Payment widget/page did not appear.")
+
+    if surface_type == "page":
+        print("ℹ️ Payment has opened in a new Juspay tab. Please approve manually.")
+        try:
+            await payment_surface.wait_for_load_state("domcontentloaded")
+        except Exception:
+            pass
+        return {"status": "payment_pending", "session_id": session_id, "message": "Payment window opened externally. Approve on Juspay/phone."}
+
+    frame = payment_surface
+    await frame.locator('section[class*="sc-1jt9o4p-0"]').first.wait_for(state="visible", timeout=10000)
+
     print("\n✅ Automation script finished.")
     print("Browser will close in 10 seconds.")
     await asyncio.sleep(10)
@@ -226,9 +310,7 @@ async def login(p, mobile_number: str, location: str) -> tuple:
     Returns the browser context and page for the next step.
     """
     print("\nStarting browser automation for Blinkit login...")
-    browser = await p.chromium.launch(headless=False, slow_mo=50)
-    context = await browser.new_context()
-    page = await context.new_page()
+    browser, context, page = await _open_blinkit_page(p)
     try:
         print("Navigating to Blinkit...")
         # Use a more reliable wait strategy and a clean URL
@@ -337,30 +419,29 @@ async def add_product_to_cart(context, session_id: str, product_name: str, quant
             await proceed_to_pay_button.click()
             print("✅ Clicked 'Proceed To Pay'.")
 
-            # --- Robust Wait --- Wait for the main payment options container to be visible.
-            # This ensures the entire section is loaded before we try to find a button inside it.
-            # Wait for Blinkit payment modal (React portal)
-            await page.wait_for_selector("#payment_widget")
+            surface_type, payment_surface = await _wait_for_blinkit_payment_surface(page)
+            if not payment_surface:
+                raise TimeoutError("Payment widget/page did not appear.")
 
-            print("Payment container detected!")
+            if surface_type == "page":
+                print("ℹ️ Payment has opened in a new Juspay tab. Please approve manually.")
+                try:
+                    await payment_surface.wait_for_load_state("domcontentloaded")
+                except Exception:
+                    pass
+                return {"status": "payment_pending", "session_id": session_id, "message": "Payment window opened externally. Approve on Juspay/phone."}
 
-            # --- Enhanced Wait ---
-            # Before checking for payment options, wait for the section containing them to be visible inside the iframe.
-            # This prevents race conditions where we look for an element before it's rendered.
-            frame = page.frame_locator("#payment_widget")
+            frame = payment_surface
             await frame.locator('section[class*="sc-1jt9o4p-0"]').first.wait_for(state="visible", timeout=10000)
 
             # Step 3: Select payment method (Cash or UPI)
             try:
-                frame = page.frame_locator("#payment_widget")
-                # Try to select "Cash" option first
                 cash_option_selector = 'div[role="button"][aria-label="Cash"]'
                 cash_option = frame.locator(cash_option_selector)
-                await cash_option.wait_for(state="visible", timeout=5000) # Use a shorter timeout
+                await cash_option.wait_for(state="visible", timeout=5000)
                 await cash_option.click()
                 print("✅ Selected 'Cash' as the payment method.")
 
-                # Click the final "Pay Now" button for cash on delivery
                 try:
                     pay_now_button = page.locator(".Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3").first
                     await pay_now_button.wait_for(state="visible", timeout=5000)
@@ -371,26 +452,19 @@ async def add_product_to_cart(context, session_id: str, product_name: str, quant
 
             except Exception:
                 print("⚠️ 'Cash' option not found, attempting to select 'Add new UPI ID'.")
-                # If cash is not available, try to click "Add new UPI ID"
-                
-                # First, check if a saved UPI ID tile is already visible by looking for its container
-                # that has the specific notice text inside it. This is more robust than class names.
+
                 saved_upi_selector = 'div[class*="LinkedUPITile__Container"]:has-text("Please press continue to complete the purchase.")'
                 saved_upi_tile = frame.locator(saved_upi_selector).first
-                
-                try:
-                    await saved_upi_tile.wait_for(state="visible", timeout=3000) # Quick check
-                    print("- Found a saved UPI ID. Selecting it.")
-                    # await saved_upi_tile.click()
-                    
-                    pay_now_button = page.locator(".Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3").first
 
+                try:
+                    await saved_upi_tile.wait_for(state="visible", timeout=3000)
+                    print("- Found a saved UPI ID. Selecting it.")
+                    pay_now_button = page.locator(".Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3").first
                     await pay_now_button.wait_for(state="visible", timeout=5000)
                     await pay_now_button.click()
                     print("✅ Clicked 'Pay Now' to place the order with the saved UPI ID.")
 
                 except TimeoutError:
-                    # If no saved UPI is found, click "Add new UPI ID" and ask for input
                     print("- No saved UPI ID found. Clicking 'Add new UPI ID'.")
                     upi_option_selector = 'div[role="button"][aria-label="Add new UPI ID"]'
                     upi_option = frame.locator(upi_option_selector)
@@ -465,9 +539,14 @@ async def submit_upi_and_pay(context, upi_id: str):
     page = context.pages[0]
     print(f"\n--- Submitting UPI ID: {upi_id} ---")
     try:
-        # Locate the UPI input field, click it, and fill it.
-        # This selector assumes an input field becomes visible after clicking "Add new UPI ID".
-        frame = page.frame_locator("#payment_widget")
+        surface_type, payment_surface = await _wait_for_blinkit_payment_surface(page)
+        if not payment_surface:
+            raise TimeoutError("Payment widget/page not found for UPI entry.")
+
+        if surface_type == "page":
+            raise TimeoutError("Payment opened externally; cannot auto-fill UPI in new tab.")
+
+        frame = payment_surface
         upi_input_selector = 'input[class*="sc-1yzxt5f-9"]'
         upi_input = frame.locator(upi_input_selector)
         await upi_input.wait_for(state="visible", timeout=7000)
@@ -494,9 +573,7 @@ async def search_multiple_products(p, queries: list[str]) -> tuple[any, any, dic
         print("❌ Authentication file not found. Please login first.")
         return {"error": "User not logged in. Please use the /login endpoint first."}
 
-    browser = await p.chromium.launch(headless=False, slow_mo=50)
-    context = await browser.new_context(storage_state=AUTH_FILE_PATH)
-    page = await context.new_page()
+    browser, context, page = await _open_blinkit_page(p, storage_state=AUTH_FILE_PATH)
 
     print("Navigating to Blinkit home page to initialize session...")
     await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")

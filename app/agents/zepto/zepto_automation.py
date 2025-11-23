@@ -124,12 +124,21 @@ async def search_products_zepto(page, query: str, max_items: int = 20):
     search_url = f"https://www.zeptonow.com/search?query={quote_plus(query)}"
     print(f"- Navigating to search page: {search_url}")
     await page.goto(search_url)
-    try:
-        product_card_selector = 'a.B4vNQ'
-        await page.wait_for_selector(product_card_selector, timeout=15000)
-    except TimeoutError:
-        print("⚠️ No product cards rendered for Zepto search.")
-        return []
+    await _ensure_location_selected(page)
+
+    product_card_selector = 'a.B4vNQ'
+    for attempt in range(2):
+        try:
+            await page.wait_for_selector(product_card_selector, timeout=15000)
+            break
+        except TimeoutError:
+            if attempt == 0:
+                print("⚠️ Product cards not visible yet. Trying to re-confirm location and retry search once more.")
+                await _ensure_location_selected(page, force_click=True)
+                await page.reload()
+                continue
+            print("⚠️ No product cards rendered for Zepto search even after retry.")
+            return []
 
     product_locator = page.locator(product_card_selector)
     count = await product_locator.count()
@@ -202,6 +211,38 @@ async def _handle_address_requirement(page, address_details: dict | None):
         if added:
             return True
     return False
+
+
+async def _ensure_location_selected(page, force_click: bool = False):
+    """Ensure Zepto shows products by selecting an existing saved address/location."""
+    try:
+        triggers = [
+            ("Select Location header button", page.locator('button:has-text("Select Location")').first),
+            ("Deliver to location CTA", page.locator('button:has-text("Deliver Here")').first),
+            ("Add address to proceed button", page.locator('button:has-text("Add address to proceed")').first),
+        ]
+
+        if force_click:
+            for desc, loc in triggers:
+                try:
+                    await loc.click(timeout=1500)
+                    print(f"➡️ Triggered location dialog via {desc}.")
+                    break
+                except Exception:
+                    continue
+        else:
+            for desc, loc in triggers:
+                try:
+                    if await loc.is_visible(timeout=1000):
+                        await loc.click()
+                        print(f"➡️ Location selector opened via {desc}.")
+                        break
+                except Exception:
+                    continue
+
+        await _handle_address_requirement(page, None)
+    except Exception as exc:
+        print(f"⚠️ Unable to auto-select Zepto location: {exc}")
 
 async def _select_saved_address_if_needed(page, timeout: int = 6000):
     """If the address chooser modal appears, select the first saved address and confirm."""
@@ -445,7 +486,7 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
     Launches Playwright, navigates to Zepto, sets location, and processes the shopping list.
     """
     print("\nStep 2: Starting browser automation with Playwright for Zepto...")
-    browser = await p.chromium.launch(headless=False, slow_mo=100)
+    browser = await p.chromium.launch(headless=True, slow_mo=100)
     context = await browser.new_context()
     page = await context.new_page()
 
@@ -581,7 +622,7 @@ async def login_zepto(mobile_number: str, location: str, playwright):
     Returns the browser and page objects to continue the session.
     """
     print("\nStarting browser automation with Playwright for Zepto Login...")
-    browser = await playwright.chromium.launch(headless=False, slow_mo=100)
+    browser = await playwright.chromium.launch(headless=True, slow_mo=100)
     context = await browser.new_context()
     page = await context.new_page()
 
