@@ -29,6 +29,12 @@ class AddToCartRequest(BaseModel):
     session_id: str
     product: dict
 
+class BookRequest(BaseModel):
+    session_id: str
+    door_no: str
+    landmark: str
+    upi_id: str
+
 @router.post("/swiggy/signup")
 async def swiggy_signup_endpoint(request: SignupRequest):
     """Endpoint to automate Swiggy signup."""
@@ -105,3 +111,32 @@ async def swiggy_add_to_cart_endpoint(request: AddToCartRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add item to cart: {str(e)}")
+
+@router.post("/swiggy/book")
+async def swiggy_book_endpoint(request: BookRequest):
+    """Endpoint to book the order from the cart using address and payment details."""
+    session = ACTIVE_SESSIONS.get(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    
+    context = session["context"]
+    playwright = session["playwright"]
+
+    try:
+        await swiggy_automation.book_order(
+            context,
+            request.door_no,
+            request.landmark,
+            request.upi_id
+        )
+        return {
+            "status": "success",
+            "message": "Order has been successfully placed. The browser will close shortly."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to book order: {str(e)}")
+    finally:
+        # Clean up the session after booking is attempted
+        await context.browser.close()
+        await playwright.stop()
+        ACTIVE_SESSIONS.pop(request.session_id, None)

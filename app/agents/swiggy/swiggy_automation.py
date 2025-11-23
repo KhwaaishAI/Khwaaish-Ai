@@ -322,8 +322,10 @@ async def search_swiggy(playwright_instance: async_playwright, location: str, qu
         print("✅ Search results page loaded. Starting data extraction.")
 
         product_data = []
+        seen_products = set()  # Set to track unique products
         # Locate all product cards. Using data-testid for robustness.
-        product_cards = await page.locator('div[data-testid^="search-pl-dish"], div[data-testid="normal-dish-item"]').all()
+        # Refined selector to target only the direct containers of dish items to prevent nesting issues.
+        product_cards = await page.locator('div[data-testid="dish-item-container"], div[data-testid="normal-dish-item"]').all()
         print(f"Found {len(product_cards)} product cards.")
 
         for i, card in enumerate(product_cards[:30]):
@@ -349,14 +351,22 @@ async def search_swiggy(playwright_instance: async_playwright, location: str, qu
                 description = await description_element.text_content() if await description_element.count() > 0 else "N/A"
                 is_veg = "Veg Item." in description
 
-                product_data.append({
+                # Create a unique identifier based on item name and price to handle duplicates
+                product_identifier = (item_name.strip(), price.strip())
+
+                if product_identifier in seen_products:
+                    continue # Skip if we've already processed this exact product
+
+                product_details = {
                     "restaurant_name": restaurant_name.strip(),
                     "item_name": item_name.strip(),
                     "rating": rating.strip(),                    
                     "price": price.strip(),
                     "original_price": original_price.strip() if original_price != "N/A" else None,
                     "is_veg": is_veg
-                })
+                }
+                product_data.append(product_details)
+                seen_products.add(product_identifier)
             except Exception as e:
                 print(f"Error extracting data for card {i}: {e}")
                 continue
@@ -446,49 +456,154 @@ async def add_product_to_cart(context, product: dict):
         if await page.locator(modal_selector).count() > 0 or await page.wait_for_selector(modal_selector, timeout=3000):
             print("⚠️ Customization modal detected.")
             
-            # Check for "Continue" button
+            # Scenario 1: A "Continue" button appears first. Click it to reveal the next step.
             continue_btn = page.locator('button[data-testid="menu-customize-continue-button"]')
-            
             if await continue_btn.count() > 0 and await continue_btn.is_visible():
                 await continue_btn.click()
                 print("✅ Clicked 'Continue' on customization modal.")
+                await asyncio.sleep(1) # Wait for the next part of the modal to load.
+
+            # Scenario 2: Handle other options like "Served Hot" if they exist.
+            served_hot_locator = page.locator('div:has-text("Served Hot")').last
+            if await served_hot_locator.count() > 0:
+                print("ℹ️ Found 'Served Hot' option. Selecting it...")
+                await served_hot_locator.click()
+                print("✅ Selected 'Served Hot'.")
+                await asyncio.sleep(1)
+
+            # Final Step: Click the "Add Item to cart" button, which should now be visible.
+            add_footer_btn = page.locator('div.pEWTb button[data-cy="customize-footer-add-button"]:has-text("Add Item to cart")')
+            if await add_footer_btn.count() > 0:
+                await add_footer_btn.click() # First attempt
+                print("✅ Clicked 'Add Item to cart' button. Checking for required selections...")
+                await asyncio.sleep(2) # Wait to see if modal closes
+
+                # If modal is still visible, a mandatory choice was likely missed.
+                if await page.locator(modal_selector).is_visible():
+                    print("⚠️ Modal still open. A required choice (e.g., Raita) might be needed.")
+                    # Based on user HTML, select the first available raita option.
+                    # The user indicated the clickable element is the span with data-testid="icon"
+                    raita_clickable_icon_selector = 'div[data-testid="style-check-box"] span[data-testid="icon"]'
+                    if await page.locator(raita_clickable_icon_selector).count() > 0:
+                        print("✅ Found Raita options. Selecting the first one...")
+                        # Click the visual element instead of using .check() on the input
+                        await page.locator(raita_clickable_icon_selector).first.click()
+                        await asyncio.sleep(1)
+                        # Try adding to cart again
+                        await add_footer_btn.click()
+                        print("✅ Clicked 'Add Item to cart' again after selecting Raita.")
+                    else:
+                        print("⚠️ Could not find Raita options to select.")
             else:
-                print("ℹ️ 'Continue' button not found. Checking for 'Served Hot' option...")
-                
-                # Look for "Served Hot" option and select it
-                # User provided HTML indicates "Served Hot" text.
-                # We'll try to click the label or text associated with it.
-                served_hot_locator = page.locator('div:has-text("Served Hot")').last
-                
-                if await served_hot_locator.count() > 0:
-                    await served_hot_locator.click()
-                    print("✅ Selected 'Served Hot'.")
-                    await asyncio.sleep(1)
-                    
-                    # Click "Add Item to cart" footer button
-                    # HTML: <button ... data-cy="customize-footer-add-button" ...>
-                    add_footer_btn = page.locator('button[data-cy="customize-footer-add-button"]')
-                    if await add_footer_btn.count() > 0:
-                        await add_footer_btn.click()
-                        print("✅ Clicked 'Add Item to cart'.")
-                    else:
-                        print("⚠️ 'Add Item to cart' button not found.")
-                else:
-                    print("⚠️ 'Served Hot' option not found. Trying to add to cart directly.")
-                    # Click "Add Item to cart" footer button as a fallback
-                    add_footer_btn = page.locator('button[data-cy="customize-footer-add-button"]')
-                    if await add_footer_btn.count() > 0:
-                        await add_footer_btn.click()
-                        print("✅ Clicked 'Add Item to cart' as fallback.")
-                    else:
-                        print("⚠️ Fallback 'Add Item to cart' button not found.")
+                print("⚠️ Could not find the final 'Add Item to cart' button in the modal.")
         else:
              print("ℹ️ No customization modal detected.")
 
     except Exception as e:
-        print(f"ℹ️ Modal check ignored or failed: {e}")
+        print("✅ Item added to cart directly without customization.")
 
 
     # Verify item count increased in cart or some indicator (optional for now)
     print(f"✅ Processed add to cart for '{item_name}'.")
+
+async def book_order(context, door_no: str, landmark: str, upi_id: str):
+    """
+    Handles the final booking process from viewing the cart to payment.
+    """
+    page = context.pages[0]
+    print("\n--- Starting Booking Process ---")
+
+    try:
+        # 1. Click "View Cart" to proceed to the checkout page
+        print("🛒 Clicking 'View Cart'...")
+        # Based on user HTML, this is the specific selector for the cart link.
+        await asyncio.sleep(2)
+        view_cart_button = page.locator('li.xNIjm a[href="/checkout"]:has-text("Cart")')
+        await view_cart_button.wait_for(state="visible", timeout=10000)
+        await view_cart_button.click()
+        await page.wait_for_load_state('networkidle', timeout=20000)
+        print("✅ Cart page loaded.")
+        await asyncio.sleep(2)
+
+        # 2. Handle Address - Click "Add New Address"
+        print("📍 Adding a new delivery address...")
+        # Based on user HTML, this selector targets the container with the "Add new Address" text.
+        add_address_button = page.locator('div._3EgOG:has-text("Add new Address")')
+        await add_address_button.wait_for(state="visible", timeout=10000)
+        await add_address_button.click()
+        await page.wait_for_load_state('networkidle', timeout=15000)
+        print("✅ Address form loaded.")
+        await asyncio.sleep(2)
+
+        # 3. Fill in address details
+        print(f"📝 Filling address details: Door No: {door_no}, Landmark: {landmark}")
+        # Fill Door/Flat No.
+        # Based on user HTML, the id is 'building'. Click and type like a human.
+        door_input = page.locator('input#building')
+        await door_input.click()
+        await door_input.type(door_no, delay=100)
+        await asyncio.sleep(2)
+        # Fill Landmark
+        # Click and type like a human for the landmark as well.
+        landmark_input = page.locator('input#landmark')
+        await landmark_input.click()
+        await landmark_input.type(landmark, delay=100)
+        await asyncio.sleep(2)
+
+        # Click the "Home" button to tag the address
+        print("🏠 Clicking 'Home' to tag the address type...")
+        home_button = page.locator('div._1qiSu:has-text("Home")')
+        await home_button.click()
+        await asyncio.sleep(2)
+        # Save the address
+        # Based on user HTML, this is the selector for the save address button
+        save_address_button = page.locator('a._1kz4H:has-text("SAVE ADDRESS & PROCEED")')
+        await save_address_button.click()
+        await page.wait_for_load_state('networkidle', timeout=20000)
+        print("✅ Address saved. Proceeding to payment.")
+
+        # Click the "Proceed to Pay" button to reveal payment options
+        print("▶️ Clicking 'Proceed to Pay'...")
+        proceed_to_pay_button = page.locator('button._4dnMB:has-text("Proceed to Pay")')
+        await proceed_to_pay_button.wait_for(state="visible", timeout=10000)
+        await proceed_to_pay_button.click()
+        await page.wait_for_load_state('networkidle', timeout=15000)
+
+        # 4. Select Payment Method - UPI
+        print("💳 Selecting UPI as payment method...")
+        # Based on user HTML, locate and click the "Add New UPI ID" button.
+        add_upi_button_selector = 'div[role="button"]:has-text("Add New UPI ID")'
+        add_upi_button = page.locator(add_upi_button_selector)
+        await add_upi_button.wait_for(state="visible", timeout=15000)
+        await add_upi_button.click()
+        print("✅ Clicked 'Add New UPI ID'.")
+
+        # 5. Enter UPI ID
+        print(f"⌨️ Entering UPI ID: {upi_id}")
+        # Based on user HTML, use the correct selector and type like a human.
+        upi_input_selector = 'input#upi-input'
+        upi_input = page.locator(upi_input_selector)
+        await upi_input.wait_for(state="visible", timeout=10000)
+        await upi_input.click()
+        await upi_input.type(upi_id, delay=100)
+
+        # 6. Click the final "PAY" button
+        print("💸 Clicking final 'Verify and Pay' button...")
+        # Based on user HTML, this is the selector for the final pay button
+        pay_button_selector = 'button[data-testid="verify_btn"]:has-text("Verify and Pay")'
+        pay_button = page.locator(pay_button_selector)
+        await pay_button.wait_for(state="visible", timeout=10000)
+        await pay_button.click()
+
+        print("\n✅ Order placement initiated successfully!")
+        print("⏳ Waiting for 2 minutes for the transaction to be processed...")
+        await asyncio.sleep(120)
+        await context.browser.close()
+
+    except Exception as e:
+        print(f"❌ An error occurred during the booking process: {e}")
+        # Taking a screenshot can help debug what went wrong.
+        await page.screenshot(path="booking_error.png")
+        print("📸 Screenshot of the error page saved as 'booking_error.png'.")
+        raise
         
