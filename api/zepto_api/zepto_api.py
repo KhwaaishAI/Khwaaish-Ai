@@ -114,7 +114,7 @@ async def _open_zepto_page(playwright, storage_state_path: str):
         geolocation=DEFAULT_GEOLOCATION,
         permissions=["geolocation"],
     )
-    context.add_init_script(
+    await context.add_init_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
     )
     page = await context.new_page()

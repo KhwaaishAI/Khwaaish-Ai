@@ -75,26 +75,28 @@ async def search_and_add_item(page, item_name: str, quantity: int):
             price = float(re.sub(r'[^\d.]', '', price_text))
             
             scraped_products.append({'name': name, 'price': price, 'card': card})
-        except Exception as e:
+        except Exception:
             continue 
 
-    if not scraped_products:
-        print(f"⚠️ Could not scrape product details for '{item_name}'. Skipping.")
-        return
+    selected_card = None
+    if scraped_products:
+        best_match_product = find_best_match(item_name, scraped_products)
+        
+        if not best_match_product:
+            print("- No match found, falling back to the cheapest product.")
+            scraped_products.sort(key=lambda p: p['price'])
+            best_match_product = scraped_products[0] if scraped_products else None
 
-    best_match_product = find_best_match(item_name, scraped_products)
-    
-    if not best_match_product:
-        print("- No match found, falling back to the cheapest product.")
-        scraped_products.sort(key=lambda p: p['price'])
-        best_match_product = scraped_products[0] if scraped_products else None
-
-    if not best_match_product:
-        print(f"❌ Critical Error: Could not select any product for '{item_name}'. Skipping.")
-        return
-
-    selected_card = best_match_product['card']
-    print(f"- Final selection: '{best_match_product['name']}' at ₹{best_match_product['price']}")
+        if best_match_product:
+            selected_card = best_match_product['card']
+            print(f"- Final selection: '{best_match_product['name']}' at ₹{best_match_product['price']}")
+    else:
+        # Scraping failed but product cards exist; fall back to first visible card.
+        if count == 0:
+            print(f"⚠️ No product cards available for '{item_name}'. Skipping.")
+            return
+        selected_card = product_locator.nth(0)
+        print(f"⚠️ Could not scrape product details for '{item_name}'. Falling back to first product card.")
     
     try:
         await _click_robust(
@@ -947,7 +949,7 @@ async def login_zepto(mobile_number: str, location: str, playwright):
         geolocation=DEFAULT_GEOLOCATION,
         permissions=["geolocation"],
     )
-    context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+    await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
     page = await context.new_page()
 
     try:
