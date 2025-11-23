@@ -8,100 +8,35 @@ import os
 from datetime import datetime
 
 # Add the root directory to the Python path to enable imports from other modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(MODULE_DIR))))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
 from app.prompts.blinkit_prompts.blinkit_prompts import find_best_match
 
 # Path to store authentication state
-AUTH_FILE_PATH = os.path.join(os.path.dirname(__file__), "playwright_auth.json")
-SEARCH_HISTORY_DIR = os.path.join(os.path.dirname(__file__), "search_history")
+AUTH_FILE_PATH = os.path.join(MODULE_DIR, "playwright_auth.json")
+SEARCH_HISTORY_DIR = os.path.join(MODULE_DIR, "search_history")
 
-BLINKIT_HEADLESS = os.getenv("BLINKIT_HEADLESS", "true").lower() not in {"false", "0", "no"}
-DESKTOP_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/119.0.0.0 Safari/537.36"
-)
-DEFAULT_VIEWPORT = {"width": 1366, "height": 900}
-DEFAULT_GEOLOCATION = {"latitude": 19.0760, "longitude": 72.8777}
-HEADLESS_ARGS = [
-    "--disable-blink-features=AutomationControlled",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--no-sandbox",
-]
-
-
-async def _open_blinkit_page(playwright, storage_state: str | None = None, slow_mo: int = 50):
-    """Launch Chromium with human-like settings so Blinkit works reliably in headless mode."""
-    browser = await playwright.chromium.launch(
-        headless=BLINKIT_HEADLESS,
-        slow_mo=slow_mo,
-        args=HEADLESS_ARGS,
-    )
-    context = await browser.new_context(
-        storage_state=storage_state,
-        viewport=DEFAULT_VIEWPORT,
-        user_agent=DESKTOP_USER_AGENT,
-        locale="en-US",
-        timezone_id="Asia/Kolkata",
-        geolocation=DEFAULT_GEOLOCATION,
-        permissions=["geolocation"],
-    )
-    context.add_init_script(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-    )
-    page = await context.new_page()
-    await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")
-    return browser, context, page
-
-
-async def _wait_for_blinkit_payment_surface(page, timeout: int = 30000):
-    """Wait for Blinkit's payment iframe or a separate Juspay tab in headless mode."""
-    context = page.context
-
-    # Split the timeout between iframe detection and new window detection
-    frame_timeout = int(timeout * 0.6)
-    page_timeout = timeout - frame_timeout
-
-    try:
-        await page.wait_for_selector("#payment_widget", timeout=frame_timeout)
-        print("✅ Payment iframe (#payment_widget) detected.")
-        return "frame", page.frame_locator("#payment_widget")
-    except TimeoutError:
-        print("⚠️ Payment iframe not found within timeframe. Checking for separate Juspay page...")
-
-    # Check existing pages first (in case Juspay opened instantly)
-    for existing in context.pages:
-        if existing is page:
-            continue
-        if "juspay" in existing.url.lower():
-            print(f"✅ Found existing Juspay page: {existing.url}")
-            return "page", existing
-
-    try:
-        new_page = await context.wait_for_event("page", timeout=page_timeout)
-        await new_page.wait_for_load_state("domcontentloaded")
-        print(f"✅ New payment page opened: {new_page.url}")
-        return "page", new_page
-    except TimeoutError:
-        print("⚠️ No payment surface detected within timeout.")
-        return None, None
+# Utility: safe sleep with small logs
+async def safe_sleep(ms: int = 500):
+    await asyncio.sleep(ms / 1000)
 
 
 async def search_and_add_item(page, item_name: str, quantity: int):
     """Searches for an item, selects the best match, and adds it to the cart."""
     print(f"\nProcessing item: '{item_name}' (Quantity: {quantity})")
-    
     search_url = f"https://www.blinkit.com/s/?q={quote_plus(item_name)}"
     print(f"- Navigating to search page: {search_url}")
-    await page.goto(search_url)
+    await page.goto(search_url, wait_until="domcontentloaded")
 
     try:
         first_product_card_selector = 'div[id][data-pf="reset"]'
         await page.wait_for_selector(first_product_card_selector, timeout=15000)
         print("- Product results page loaded successfully.")
     except TimeoutError:
-        print(f"⚠️ Could not find any products for '{item_name}' on the page. Skipping.")
+        print(f"⚠ Could not find any products for '{item_name}' on the page. Skipping.")
         return
 
     product_locator = page.locator(first_product_card_selector)
@@ -114,24 +49,24 @@ async def search_and_add_item(page, item_name: str, quantity: int):
         try:
             name_elem = card.locator('.tw-text-300.tw-font-semibold.tw-line-clamp-2').first
             price_elem = card.locator('.tw-text-200.tw-font-semibold').first
-            
+
             if not await name_elem.is_visible(timeout=1000) or not await price_elem.is_visible(timeout=1000):
                 continue
-            
-            name = (await name_elem.text_content(timeout=2000)).strip()
-            price_text = await price_elem.text_content(timeout=2000)
-            price = float(re.sub(r'[^\d.]', '', price_text))
-            
-            scraped_products.append({'name': name, 'price': price, 'card': card})
+
+            name = (await name_elem.text_content(timeout=2000)) or ""
+            price_text = (await price_elem.text_content(timeout=2000)) or ""
+            price = float(re.sub(r'[^\d.]', '', price_text)) if price_text else float('inf')
+
+            scraped_products.append({'name': name.strip(), 'price': price, 'card': card})
         except Exception:
-            continue 
+            continue
 
     if not scraped_products:
-        print(f"⚠️ Could not scrape product details for '{item_name}'. Skipping.")
+        print(f"⚠ Could not scrape product details for '{item_name}'. Skipping.")
         return
 
     best_match_product = find_best_match(item_name, scraped_products)
-    
+
     if not best_match_product:
         print("- No match found, falling back to the cheapest product.")
         scraped_products.sort(key=lambda p: p['price'])
@@ -143,64 +78,166 @@ async def search_and_add_item(page, item_name: str, quantity: int):
 
     selected_card = best_match_product['card']
     print(f"- Final selection: '{best_match_product['name']}' at ₹{best_match_product['price']}")
-    
+
     try:
         add_button = selected_card.locator('div[role="button"]:has-text("ADD")')
         await add_button.click(timeout=5000)
         print("- Clicked 'ADD' once.")
-        await page.wait_for_timeout(500)
-        
+        await safe_sleep(500)
+
         if quantity > 1:
             for i in range(quantity - 1):
                 plus_button = selected_card.locator('button:has(span.icon-plus)')
                 await plus_button.click(timeout=5000)
                 print(f"- Clicked '+' to increase quantity to {i+2}")
-                await page.wait_for_timeout(300)
+                await safe_sleep(300)
         print(f"✅ Successfully added {quantity} of '{item_name}' to cart.")
 
     except Exception as e:
         print(f"❌ An unexpected error occurred while adding to cart: {e}")
 
-async def automate_blinkit(shopping_list: dict, location: str, mobile_number: str, p):
+
+async def _click_checkout_strip_cta(page, label: str, timeout: int = 7000):
+    """Clicks the CheckoutStrip CTA that contains the given label."""
+    strip_locator = page.locator(
+        f'div.CheckoutStrip__StripContainer-sc-1fzbdhy-8:has-text("{label}")'
+    ).first
+    await strip_locator.wait_for(state="visible", timeout=timeout)
+    await strip_locator.scroll_into_view_if_needed()
+
+    cta_locator = strip_locator.locator(
+        'div.CheckoutStrip__CTAText-sc-1fzbdhy-13', has_text=label
+    ).first
+    try:
+        await cta_locator.click(timeout=timeout)
+    except Exception:
+        # Fall back to clicking the full strip via JS if the CTA is not clickable
+        await strip_locator.evaluate("el => el.click()")
+
+
+async def _click_pay_now_button(page, payment_frame=None, timeout: int = 6000):
+    """Attempts multiple selectors to click the Pay Now/Checkout button."""
+    candidates = [
+        ("'Pay Now' button on page (Zpayments primary)", page.locator('.Zpayments__Button-sc-127gezb-3:has-text("Pay Now")').first),
+        ("'Pay Now' button on page (container->button)", page.locator('.Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3').first),
+        ("'Pay Now' button on page (legacy)", page.locator('.Zpayments_PayNowButtonContainer-sc-127gezb-4 .Zpayments_Button-sc-127gezb-3').first),
+        ("'Pay Now' button on page", page.locator('button:has-text("Pay Now")').first),
+        ("'Pay Now' text on page", page.locator('text="Pay Now"').first),
+    ]
+    if payment_frame:
+        candidates.extend([
+            ("'Pay Now' inside payment iframe", payment_frame.locator('button:has-text("Pay Now")').first),
+            ("'Checkout' inside payment iframe", payment_frame.locator('button:has-text("Checkout")').first),
+            ("'Continue' inside payment iframe", payment_frame.locator('button:has-text("Continue")').first),
+        ])
+
+    last_error = None
+    for description, locator in candidates:
+        try:
+            await locator.wait_for(state="visible", timeout=timeout)
+            await locator.click(timeout=timeout)
+            print(f"✅ Clicked {description}.")
+            return description
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise TimeoutError(f"Could not locate a clickable Pay Now button. Last error: {last_error}")
+
+
+async def _wait_for_payment_iframe_ready(page, iframe_selector="#payment_widget", timeout=60000):
+    """Robust strategy to wait until the payment iframe is attached and the internal UI is ready.
+
+    Note: directly accessing iframe.contentDocument can be blocked for cross-origin frames. We therefore:
+      1. wait for the iframe element to be attached
+      2. wait for the iframe src to contain the expected payment path
+      3. use frameLocator to wait for UI elements inside the iframe (Playwright handles cross-origin)
+    """
+    print("Waiting for payment iframe to attach...")
+    # Stage 1: iframe element is attached
+    await page.wait_for_selector(iframe_selector, state="attached", timeout=timeout)
+
+    print("Iframe attached. Waiting for iframe src to contain payment path...")
+    # Stage 2: iframe's src becomes the payment provider (Zomato zpaykit init)
+    # This is safe to check even if the iframe is cross-origin because we only read the attribute.
+    await page.wait_for_function(
+        f"() => {{ const f = document.querySelector('{iframe_selector}'); return !!(f && f.src && f.src.includes('zpaykit/init')); }}",
+        timeout=timeout,
+    )
+
+    print("Iframe src indicates payment provider. Waiting for payment UI inside iframe...")
+    # Stage 3: use frameLocator to wait for typical payment UI elements.
+    frame = page.frame_locator(iframe_selector)
+
+    # Try multiple selectors (Pay Now, Checkout, or a known section). Wait until any one appears.
+    candidate_selectors = [
+        'button:has-text("Pay Now")',
+        'button:has-text("Pay")',
+        'button:has-text("Checkout")',
+        'section',
+        'div[data-test-id]'
+    ]
+
+    deadline = asyncio.get_event_loop().time() + (timeout / 1000)
+    last_error = None
+    for sel in candidate_selectors:
+        remaining = max(1000, int((deadline - asyncio.get_event_loop().time()) * 1000))
+        try:
+            await frame.locator(sel).first.wait_for(state="visible", timeout=remaining)
+            print(f"Found payment UI using selector: {sel}")
+            return frame
+        except Exception as e:
+            last_error = e
+            # try next selector
+            continue
+
+    # If nothing matched, raise TimeoutError with context
+    raise TimeoutError(f"Timed out waiting for payment UI inside iframe. Last error: {last_error}")
+
+
+async def automate_blinkit(shopping_list: dict, location: str, mobile_number: str, p, upi_id: str | None = None):
     """Launches Playwright to set location and process the shopping list."""
     print("\nStep 2: Starting browser automation with Playwright...")
-    
-    storage_state = AUTH_FILE_PATH if os.path.exists(AUTH_FILE_PATH) else None
-    if storage_state:
-        print("- Found existing authentication file. Loading session...")
 
-    browser, context, page = await _open_blinkit_page(p, storage_state=storage_state)
+    context_options = {}
+    if os.path.exists(AUTH_FILE_PATH):
+        print("- Found existing authentication file. Loading session...")
+        context_options['storage_state'] = AUTH_FILE_PATH
+
+    browser = await p.chromium.launch(headless=False, slow_mo=10)
+    context = await browser.new_context(**context_options)
+    page = await context.new_page()
 
     print("Navigating to Blinkit...")
-    await page.goto("https://www.blinkit.com/")
-    
+    await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")
+
     location_input = page.get_by_placeholder("search delivery location")
     await location_input.fill(location)
     try:
         await page.locator(".LocationSearchList__LocationListContainer-sc-93rfr7-0").first.click()
     except TimeoutError:
-        # If the location is already set from the previous session, this might not be needed.
-        # We can check if we are on the main page by looking for the search bar.
         try:
             await page.wait_for_selector("input[placeholder*='Search for']", timeout=5000)
             print("- Location seems to be already set from the session.")
         except TimeoutError:
             print("❌ Critical Error: Could not set location or verify main page.")
-    
-    print("Location set. Waiting for 4 seconds before searching for items...")
-    await page.wait_for_timeout(4000)
+
+    print("Location set. Waiting for 1.5 seconds before searching for items...")
+    await page.wait_for_timeout(1500)
     print("Main page loaded.")
 
     print("\nStep 3: Preparing to add items to cart...")
     for item, quantity in shopping_list.items():
         await search_and_add_item(page, item, quantity)
-    
+
     print("-----------------------------------------")
-    
     print("\n✅ All items processed. Cart should be ready.")
-    
+
     # Check if we are already logged in by looking for a "Proceed" button instead of "Login to Proceed"
-    is_logged_in = await page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').is_visible()
+    try:
+        is_logged_in = await page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').is_visible()
+    except Exception:
+        is_logged_in = False
 
     if not is_logged_in:
         print("\n- User not logged in. Starting login flow...")
@@ -213,7 +250,7 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
         except Exception as e:
             print(f"❌ Error clicking cart button: {e}")
             return
-        
+
         print("\nStep 5: Clicking on 'Login to Proceed' button...")
         try:
             login_button = page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Login to Proceed")').first
@@ -223,7 +260,7 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
         except Exception as e:
             print(f"❌ Error clicking Login to Proceed: {e}")
             return
-        
+
         print("\nStep 6: Entering phone number...")
         try:
             phone_input = page.locator('input.login-phone__input[data-test-id="phone-no-text-box"]').first
@@ -233,7 +270,7 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
         except Exception as e:
             print(f"❌ Error entering phone number: {e}")
             return
-        
+
         print("\nStep 7: Clicking 'Continue' button...")
         try:
             continue_button = page.locator('button.PhoneNumberLogin__LoginButton-sc-1j06udd-4:has-text("Continue")').first
@@ -242,28 +279,30 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
         except Exception as e:
             print(f"❌ Error clicking Continue button: {e}")
             return
-        
+
         print("\nStep 8: Waiting for OTP entry (30 seconds)...")
         print("⏳ Please enter the OTP on the browser...")
         await asyncio.sleep(30)
         print("✅ OTP wait period completed.")
-        
+
         print("\nStep 9: Waiting for page to load after OTP...")
         await page.wait_for_timeout(3000)
         try:
-            # After OTP, the button should now say "Proceed"
-            proceed_button = page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').first
-            await proceed_button.click(timeout=5000)
+            await _click_checkout_strip_cta(page, "Proceed", timeout=8000)
             print("✅ Final Proceed button clicked successfully.")
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(1000)
         except Exception as e:
             print(f"❌ Error clicking final Proceed button: {e}")
             return
     else:
         print("\n- User is already logged in. Proceeding with checkout...")
-        await page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed")').first.click(timeout=5000)
-        print("✅ Clicked 'Proceed' button.")
-        await page.wait_for_timeout(2000)
+        try:
+            await _click_checkout_strip_cta(page, "Proceed", timeout=8000)
+            print("✅ Clicked 'Proceed' button.")
+            await page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"❌ Error clicking proceed: {e}")
+            return
 
     print("\nStep 10: Selecting the first saved address...")
     try:
@@ -278,31 +317,63 @@ async def automate_blinkit(shopping_list: dict, location: str, mobile_number: st
 
     print("\nStep 11: Clicking 'Proceed To Pay'...")
     try:
-        proceed_to_pay_button = page.locator('div.CheckoutStrip__CTAText-sc-1fzbdhy-13:has-text("Proceed To Pay")').first
-        await proceed_to_pay_button.click(timeout=5000)
+        await _click_checkout_strip_cta(page, "Proceed To Pay", timeout=8000)
         print("✅ 'Proceed To Pay' button clicked successfully.")
     except Exception as e:
         print(f"❌ Error clicking 'Proceed To Pay' button: {e}")
         return
 
-    surface_type, payment_surface = await _wait_for_blinkit_payment_surface(page)
-    if not payment_surface:
-        raise TimeoutError("Payment widget/page did not appear.")
+    # NEW: Robust waiting for payment iframe and flow
+    try:
+        print("\n--- Now handling payment options (iframe) ---")
+        payment_frame = await _wait_for_payment_iframe_ready(page, iframe_selector="#payment_widget", timeout=60000)
 
-    if surface_type == "page":
-        print("ℹ️ Payment has opened in a new Juspay tab. Please approve manually.")
+        # Try 'Cash' option inside the frame first (many pages expose payment methods inside iframe)
         try:
-            await payment_surface.wait_for_load_state("domcontentloaded")
-        except Exception:
-            pass
-        return {"status": "payment_pending", "session_id": session_id, "message": "Payment window opened externally. Approve on Juspay/phone."}
+            cash_option_selector = 'div[role="button"][aria-label="Cash"]'
+            await payment_frame.locator(cash_option_selector).first.wait_for(state="visible", timeout=5000)
+            await payment_frame.locator(cash_option_selector).first.click()
+            print("✅ Selected 'Cash' as the payment method.")
 
-    frame = payment_surface
-    await frame.locator('section[class*="sc-1jt9o4p-0"]').first.wait_for(state="visible", timeout=10000)
+            await _click_pay_now_button(page, payment_frame)
+            print("✅ Pay Now sequence completed.")
+
+        except Exception:
+            print("⚠ 'Cash' option not found inside iframe, trying saved UPI or Add new UPI flow.")
+            saved_upi_selector = 'div[class*="LinkedUPITile__Container"]:has-text("Please press continue to complete the purchase.")'
+            try:
+                await payment_frame.locator(saved_upi_selector).first.wait_for(state="visible", timeout=3000)
+                print("- Found a saved UPI ID. Clicking Pay Now on page.")
+                await _click_pay_now_button(page, payment_frame)
+                print("✅ Pay Now sequence completed with saved UPI.")
+            except Exception:
+                # No saved UPI tile — click 'Add new UPI ID' and inform caller
+                upi_option_selector = 'div[role="button"][aria-label="Add new UPI ID"]'
+                try:
+                    await payment_frame.locator(upi_option_selector).first.wait_for(state="visible", timeout=5000)
+                    await payment_frame.locator(upi_option_selector).first.click()
+                    print("✅ Clicked 'Add new UPI ID'. Ready for UPI input.")
+                    if upi_id:
+                        print("- UPI ID provided by caller. Submitting now...")
+                        await submit_upi_and_pay(context, upi_id)
+                        print("✅ UPI submitted successfully.")
+                    else:
+                        return {"status": "upi_id_needed", "message": "Cash not available. Please provide a UPI ID via submit_upi_and_pay."}
+                except Exception as e:
+                    print(f"❌ Could not find payment options inside iframe: {e}")
+                    return {"status": "error", "message": "Payment UI not found."}
+
+    except TimeoutError as te:
+        print(f"❌ Timeout while waiting for payment iframe/UI: {te}")
+        raise
+    except Exception as e:
+        print(f"❌ An error occurred during the add-to-cart and proceed flow: {e}")
+        raise
 
     print("\n✅ Automation script finished.")
     print("Browser will close in 10 seconds.")
     await asyncio.sleep(10)
+
 
 async def login(p, mobile_number: str, location: str) -> tuple:
     """
@@ -310,12 +381,12 @@ async def login(p, mobile_number: str, location: str) -> tuple:
     Returns the browser context and page for the next step.
     """
     print("\nStarting browser automation for Blinkit login...")
-    browser, context, page = await _open_blinkit_page(p)
+    browser = await p.chromium.launch(headless=False, slow_mo=5)
+    context = await browser.new_context()
+    page = await context.new_page()
     try:
         print("Navigating to Blinkit...")
-        # Use a more reliable wait strategy and a clean URL
         await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")
-        # Check if the location input field is present on the landing page
         location_input_selector = 'div.display--table-cell.full-width > input[placeholder="search delivery location"]'
         location_input = page.locator(location_input_selector)
         await location_input.click()
@@ -323,20 +394,15 @@ async def login(p, mobile_number: str, location: str) -> tuple:
         await page.wait_for_timeout(1000)
         await page.locator(".LocationSearchList__LocationListContainer-sc-93rfr7-0").first.click()
         print(f"✅ Location set to '{location}'.")
-        # After setting location, the page reloads. We must wait for the login button to appear again.
-        print("- Waiting for page to reload after setting location...")
         await page.locator("div.bFHCDW:has-text('Login')").first.wait_for(timeout=15000)
 
-
         print("Clicking on the main login button...")
-        # Target the most specific element containing the text "Login"
         login_button = page.locator("div.bFHCDW:has-text('Login')").first
         await login_button.click(timeout=5000)
         print("✅ Login button clicked.")
 
         print("Entering phone number...")
         phone_input = page.locator('input.login-phone__input[data-test-id="phone-no-text-box"]').first
-        # Wait for the phone input to be visible after clicking login
         await phone_input.wait_for(timeout=10000)
         await phone_input.fill(mobile_number)
         print(f"✅ Phone number '{mobile_number}' entered successfully.")
@@ -349,11 +415,11 @@ async def login(p, mobile_number: str, location: str) -> tuple:
         return context, page
 
     except Exception as e:
-        # If something goes wrong, close the browser to prevent orphaned processes
         if 'context' in locals() and context:
             await context.browser.close()
         print(f"❌ An error occurred during login automation: {e}")
         raise
+
 
 async def enter_otp_and_save_session(context, otp: str):
     """Enters the OTP, saves the session state, and closes the browser."""
@@ -362,129 +428,100 @@ async def enter_otp_and_save_session(context, otp: str):
     otp_inputs = page.locator('input[data-test-id="otp-text-box"]')
     for i, digit in enumerate(otp):
         await otp_inputs.nth(i).fill(digit)
-    
+
     print("✅ OTP entered. Waiting 10 seconds for session to be established...")
     await asyncio.sleep(10)
-    
+
     await context.storage_state(path=AUTH_FILE_PATH)
     print(f"✅ Authentication state saved to {AUTH_FILE_PATH}")
 
-async def add_product_to_cart(context, session_id: str, product_name: str, quantity: int):
+
+async def add_product_to_cart(context, session_id: str, product_name: str, quantity: int, upi_id: str | None = None):
     """Finds a specific product on the current page and adds it to the cart."""
     page = context.pages[0]
     print(f"\nAttempting to add '{product_name}' (Quantity: {quantity}) to cart.")
-
-    # We will use the existing search_and_add_item function's logic here
-    # In a real-world scenario, you might refactor this further
-    # For now, we'll call the search and add logic directly.
     await search_and_add_item(page, product_name, quantity)
 
-    # After adding, click the main cart button to proceed
     try:
         cart_button_selector = 'div.CartButton__Button-sc-1fuy2nj-5'
         cart_button = page.locator(cart_button_selector).first
         await cart_button.wait_for(state="visible", timeout=5000)
-        
-        # Check if cart is not empty before clicking
+
         cart_text = await cart_button.text_content()
-        if "item" in cart_text or "items" in cart_text:
+        if cart_text and ("item" in cart_text or "items" in cart_text):
             await cart_button.click()
             print("✅ Clicked the main cart button to view cart summary.")
 
-            # Click the "Proceed" button on the checkout strip
-            proceed_selector = 'div[class*="CartAddressCheckout__Container"] div[tabindex="0"][class*="CheckoutStrip__AmountContainer"]'
-            proceed_button = page.locator(proceed_selector).first
-            await proceed_button.wait_for(state="visible", timeout=7000)
-            await proceed_button.click()
+            await _click_checkout_strip_cta(page, "Proceed", timeout=8000)
             print("✅ Clicked 'Proceed' on the checkout strip.")
-            await page.wait_for_timeout(2000) # Wait for address page to load
-            
+            await page.wait_for_timeout(2000)
+
             saved_address_selector = 'div[class*="AddressList__AddressItemWrapper"]'
-            
-            # Step 1: Check for and select a saved address
             try:
                 await page.locator(saved_address_selector).first.wait_for(state="visible", timeout=7000)
                 print("- Found a saved address. Selecting it.")
                 await page.locator(saved_address_selector).first.click()
                 print("✅ First saved address selected.")
             except TimeoutError:
-                # If no saved address is found, inform the user to call the add_address endpoint
                 print("- No saved address found.")
                 return {"status": "address_needed", "session_id": session_id, "message": "No saved address found. Please provide a new address."}
 
-            # Step 2: Proceed to payment
-            proceed_to_pay_selector = 'div[class*="CheckoutStrip__AmountContainer"]:has-text("Proceed To Pay")'
-            proceed_to_pay_button = page.locator(proceed_to_pay_selector).first
-            await proceed_to_pay_button.wait_for(state="visible", timeout=5000)
-            await proceed_to_pay_button.click()
+            await _click_checkout_strip_cta(page, "Proceed To Pay", timeout=8000)
             print("✅ Clicked 'Proceed To Pay'.")
 
-            surface_type, payment_surface = await _wait_for_blinkit_payment_surface(page)
-            if not payment_surface:
-                raise TimeoutError("Payment widget/page did not appear.")
-
-            if surface_type == "page":
-                print("ℹ️ Payment has opened in a new Juspay tab. Please approve manually.")
-                try:
-                    await payment_surface.wait_for_load_state("domcontentloaded")
-                except Exception:
-                    pass
-                return {"status": "payment_pending", "session_id": session_id, "message": "Payment window opened externally. Approve on Juspay/phone."}
-
-            frame = payment_surface
-            await frame.locator('section[class*="sc-1jt9o4p-0"]').first.wait_for(state="visible", timeout=10000)
-
-            # Step 3: Select payment method (Cash or UPI)
+            # Wait and handle payment iframe
             try:
-                cash_option_selector = 'div[role="button"][aria-label="Cash"]'
-                cash_option = frame.locator(cash_option_selector)
-                await cash_option.wait_for(state="visible", timeout=5000)
-                await cash_option.click()
-                print("✅ Selected 'Cash' as the payment method.")
-
+                payment_frame = await _wait_for_payment_iframe_ready(page, iframe_selector="#payment_widget", timeout=60000)
+                # Similar logic as in automate_blinkit; try cash then UPI
                 try:
-                    pay_now_button = page.locator(".Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3").first
-                    await pay_now_button.wait_for(state="visible", timeout=5000)
-                    await pay_now_button.click()
-                    print("✅ Clicked 'Pay Now' to place the order.")
-                except Exception as pay_now_error:
-                    print(f"⚠️ Could not click 'Pay Now' for cash order: {pay_now_error}")
+                    cash_selector = 'div[role="button"][aria-label="Cash"]'
+                    await payment_frame.locator(cash_selector).first.wait_for(state="visible", timeout=4000)
+                    await payment_frame.locator(cash_selector).first.click()
+                    print("✅ Selected Cash inside iframe.")
+                    await _click_pay_now_button(page, payment_frame)
+                    print("✅ Pay Now sequence completed.")
+                except Exception:
+                    print("- Cash not available inside iframe during add_product_to_cart flow.")
+                    # try UPI saved
+                    saved_upi_selector = 'div[class*="LinkedUPITile__Container"]:has-text("Please press continue to complete the purchase.")'
+                    if await payment_frame.locator(saved_upi_selector).count() > 0:
+                        print("- Found a saved UPI ID. Clicking Pay Now on page.")
+                        await _click_pay_now_button(page, payment_frame)
+                        print("✅ Pay Now sequence completed with saved UPI.")
+                    else:
+                        # click Add new UPI ID & inform caller
+                        upi_option_selector = 'div[role="button"][aria-label="Add new UPI ID"]'
+                        if await payment_frame.locator(upi_option_selector).count() > 0:
+                            await payment_frame.locator(upi_option_selector).first.click()
+                            print("✅ Clicked Add new UPI ID inside iframe.")
+                            if upi_id:
+                                print("- UPI ID provided by caller. Submitting now...")
+                                await submit_upi_and_pay(context, upi_id)
+                                print("✅ UPI submitted successfully.")
+                            else:
+                                return {"status": "upi_id_needed", "session_id": session_id, "message": "Provide UPI via submit_upi_and_pay"}
+                        else:
+                            print("❌ No recognizable payment option found.")
+                            return {"status": "error", "message": "No payment option found."}
 
-            except Exception:
-                print("⚠️ 'Cash' option not found, attempting to select 'Add new UPI ID'.")
-
-                saved_upi_selector = 'div[class*="LinkedUPITile__Container"]:has-text("Please press continue to complete the purchase.")'
-                saved_upi_tile = frame.locator(saved_upi_selector).first
-
-                try:
-                    await saved_upi_tile.wait_for(state="visible", timeout=3000)
-                    print("- Found a saved UPI ID. Selecting it.")
-                    pay_now_button = page.locator(".Zpayments__PayNowButtonContainer-sc-127gezb-4 .Zpayments__Button-sc-127gezb-3").first
-                    await pay_now_button.wait_for(state="visible", timeout=5000)
-                    await pay_now_button.click()
-                    print("✅ Clicked 'Pay Now' to place the order with the saved UPI ID.")
-
-                except TimeoutError:
-                    print("- No saved UPI ID found. Clicking 'Add new UPI ID'.")
-                    upi_option_selector = 'div[role="button"][aria-label="Add new UPI ID"]'
-                    upi_option = frame.locator(upi_option_selector)
-                    await upi_option.wait_for(state="visible", timeout=5000)
-                    await upi_option.click()
-                    print("✅ Clicked 'Add new UPI ID'. Ready for UPI input.")
-                    return {"status": "upi_id_needed", "session_id": session_id, "message": "Cash not available. Please provide a UPI ID via the /submit-upi endpoint."}
+            except Exception as e:
+                print(f"❌ Error while handling payment iframe: {e}")
+                return {"status": "error", "message": str(e)}
 
         else:
-            print("⚠️ Cart appears empty, not clicking the cart button.")
+            print("⚠ Cart appears empty, not clicking the cart button.")
             return {"status": "error", "message": "Cart is empty."}
     except Exception as e:
         print(f"❌ An error occurred during the add-to-cart and proceed flow: {e}")
         raise
+
 
 async def add_or_select_address(context, location: str, house_number: str, name: str):
     """
     This function is deprecated and will be replaced by proceed_to_address and add_address.
     """
     pass
+
 
 async def add_address(context, session_id: str, location: str, house_number: str, name: str):
     """
@@ -493,35 +530,31 @@ async def add_address(context, session_id: str, location: str, house_number: str
     page = context.pages[0]
     print("\n--- Adding New Address ---")
     try:
-        # Click "Add a new address"
-        add_address_selector = 'div[class*="CartAddress__AddAddressContainer"]:has(div[class*="CartAddress__PlusIcon"]):has-text("Add a new address")'
+        add_address_selector = 'div[class*=\"CartAddress_AddAddressContainer"]:has(div[class*=\"CartAddress_PlusIcon\"]):has-text(\"Add a new address\")'
         add_address_button = page.locator(add_address_selector).first
         await add_address_button.wait_for(state="visible", timeout=5000)
         await add_address_button.click()
         print("✅ Clicked 'Add a new address'.")
 
-        # Fill in the new address details
         address_input_selector = 'div.Select-input > input'
         await page.locator(address_input_selector).first.fill(location)
         print(f"- Filled address: '{location}'. Waiting for suggestions...")
-        await page.wait_for_timeout(3000) # Wait for suggestions to load
+        await page.wait_for_timeout(3000)
         await page.keyboard.press("ArrowDown")
         await page.keyboard.press("Enter")
         print("✅ Selected the first address suggestion.")
         await page.wait_for_timeout(1000)
 
-        # Fill in house number and name
-        house_number_input = page.locator('div[class*="TextInput__StyledTextInput"] input#address')
+        house_number_input = page.locator('div[class*=\"TextInput__StyledTextInput\"] input#address')
         await house_number_input.click()
         await house_number_input.fill(house_number)
         print(f"- Filled house number: '{house_number}'.")
-        name_input = page.locator('div[class*="TextInput__StyledTextInput"] input#name')
+        name_input = page.locator('div[class*=\"TextInput__StyledTextInput\"] input#name')
         await name_input.click()
         await name_input.fill(name)
         print(f"- Filled name: '{name}'.")
 
-        # Click the "Save Address" button to confirm
-        save_address_selector = 'div[class*="SaveAddressButton"]:has-text("Save Address")'
+        save_address_selector = 'div[class*=\"SaveAddressButton\"]:has-text(\"Save Address\")'
         save_address_button = page.locator(save_address_selector).first
         await save_address_button.wait_for(state="visible", timeout=5000)
         await save_address_button.click()
@@ -532,6 +565,7 @@ async def add_address(context, session_id: str, location: str, house_number: str
         print(f"❌ An error occurred while adding address: {address_error}")
         return {"status": "error", "message": str(address_error)}
 
+
 async def submit_upi_and_pay(context, upi_id: str):
     """
     Enters the provided UPI ID and clicks the final pay button.
@@ -539,29 +573,24 @@ async def submit_upi_and_pay(context, upi_id: str):
     page = context.pages[0]
     print(f"\n--- Submitting UPI ID: {upi_id} ---")
     try:
-        surface_type, payment_surface = await _wait_for_blinkit_payment_surface(page)
-        if not payment_surface:
-            raise TimeoutError("Payment widget/page not found for UPI entry.")
-
-        if surface_type == "page":
-            raise TimeoutError("Payment opened externally; cannot auto-fill UPI in new tab.")
-
-        frame = payment_surface
-        upi_input_selector = 'input[class*="sc-1yzxt5f-9"]'
-        upi_input = frame.locator(upi_input_selector)
+        frame = page.frame_locator("#payment_widget")
+        upi_input_selector = 'input[class*=\"sc-1yzxt5f-9\"]'
+        upi_input = frame.locator(upi_input_selector).first
         await upi_input.wait_for(state="visible", timeout=7000)
         await upi_input.click()
         await upi_input.fill(upi_id)
         print(f"✅ Filled UPI ID: '{upi_id}'.")
 
-        # Click the final "Pay" button
-        pay_button = frame.locator('button[class*="SingleInputField__DesktopButton"]:has-text("Checkout")').first
+        # Click the final "Checkout" / "Pay" button inside iframe
+        pay_button = frame.locator('button:has-text(\"Checkout\")').first
+        await pay_button.wait_for(state="visible", timeout=7000)
         await pay_button.click()
         print("✅ Clicked final 'Checkout' button to complete the transaction.")
         return {"status": "success", "message": "UPI payment initiated successfully."}
     except Exception as e:
         print(f"❌ An error occurred during UPI submission: {e}")
         raise
+
 
 async def search_multiple_products(p, queries: list[str]) -> tuple[any, any, dict]:
     """
@@ -573,22 +602,24 @@ async def search_multiple_products(p, queries: list[str]) -> tuple[any, any, dic
         print("❌ Authentication file not found. Please login first.")
         return {"error": "User not logged in. Please use the /login endpoint first."}
 
-    browser, context, page = await _open_blinkit_page(p, storage_state=AUTH_FILE_PATH)
+    browser = await p.chromium.launch(headless=False, slow_mo=5)
+    context = await browser.new_context(storage_state=AUTH_FILE_PATH)
+    page = await context.new_page()
 
     print("Navigating to Blinkit home page to initialize session...")
     await page.goto("https://www.blinkit.com/", wait_until="domcontentloaded")
     print("- Allowing time for session to be recognized...")
-    await page.wait_for_timeout(3000)
+    await page.wait_for_timeout(1000)
 
-    # Although we search for multiple items, we will land on the page of the *last* item.
-    # The user can then choose to add an item from that page.
     all_results = {}
     for query in queries:
         print(f"\n--- Searching for: '{query}' ---")
         products = await search_products(page, query)
         all_results[query] = products
-    
+
     return context, page, all_results
+
+
 async def search_products(page, query: str) -> list:
     """
     Searches for a single product query on an existing Playwright page.
@@ -598,7 +629,7 @@ async def search_products(page, query: str) -> list:
         print(f"- Navigating to search URL: {search_url}")
         await page.goto(search_url, wait_until="domcontentloaded")
 
-        product_card_selector = 'div[id][data-pf="reset"]'
+        product_card_selector = 'div[id][data-pf=\"reset\"]'
         await page.wait_for_selector(product_card_selector, timeout=15000)
         print("- Product results page loaded.")
 
@@ -615,7 +646,6 @@ async def search_products(page, query: str) -> list:
             except Exception:
                 continue
 
-        # Save the results to a local JSON file
         try:
             os.makedirs(SEARCH_HISTORY_DIR, exist_ok=True)
             timestamp = datetime.utcnow()
@@ -624,13 +654,13 @@ async def search_products(page, query: str) -> list:
                 "timestamp": timestamp.isoformat() + "Z",
                 "products": scraped_products
             }
-            filename = f"search_{query.replace(' ', '_')}_{timestamp.strftime('%Y%m%d_%H%M%S')}.json"
+            filename = f"search_{query.replace(' ', '')}{timestamp.strftime('%Y%m%d_%H%M%S')}.json"
             filepath = os.path.join(SEARCH_HISTORY_DIR, filename)
             with open(filepath, 'w') as f:
                 json.dump(search_data, f, indent=4)
             print(f"✅ Search results for '{query}' saved to {filepath}")
         except Exception as e:
-            print(f"⚠️ Could not save search history: {e}")
+            print(f"⚠ Could not save search history: {e}")
 
         return scraped_products
     except Exception as e:
