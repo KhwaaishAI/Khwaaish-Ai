@@ -10,6 +10,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 
 from app.prompts.zepto_prompts.zepto_prompts import find_best_match
 
+# Headless-friendly browser settings (align with API usage)
+DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+DEFAULT_VIEWPORT = {"width": 1366, "height": 768}
+DEFAULT_GEOLOCATION = {"latitude": 19.0760, "longitude": 72.8777}
+HEADLESS_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-web-security",
+]
+
 async def _click_robust(page, candidates: list[tuple[str, any]], timeout: int = 5000):
     """Try multiple locators to click the same UI with fallbacks."""
     last_err = None
@@ -211,6 +223,310 @@ async def _handle_address_requirement(page, address_details: dict | None):
         if added:
             return True
     return False
+
+
+async def _open_location_picker(page, timeout: int = 6000) -> bool:
+    """Try multiple triggers to open Zepto's location/search dialog."""
+    async def _dialog_visible(timeout_ms: int = 1200) -> bool:
+        try:
+            await page.wait_for_selector('input[placeholder="Search a new address"]', timeout=timeout_ms, state="visible")
+            return True
+        except Exception:
+            try:
+                await page.wait_for_selector('div[data-testid="address-search-container"]', timeout=timeout_ms, state="visible")
+                return True
+            except Exception:
+                try:
+                    await page.wait_for_selector('div[role="dialog"]', timeout=timeout_ms, state="visible")
+                    return True
+                except Exception:
+                    pass
+            return False
+
+    try:
+        if await _dialog_visible():
+            return True
+
+        await page.wait_for_timeout(300)
+        try:
+            await page.evaluate("window.scrollTo(0, 0)")
+        except Exception:
+            pass
+
+        # Ensure page hydrated: wait for logo or Next.js data, reload once if not present
+        try:
+            hydrated = False
+            try:
+                await page.wait_for_selector('a[data-testid="zepto-logo"]', timeout=2000)
+                hydrated = True
+            except Exception:
+                pass
+            if not hydrated:
+                try:
+                    await page.wait_for_function("() => !!window.__NEXT_DATA__", timeout=2000)
+                    hydrated = True
+                except Exception:
+                    pass
+            if not hydrated:
+                await page.reload(wait_until='domcontentloaded')
+                await page.wait_for_timeout(500)
+        except Exception:
+            pass
+
+        # Dismiss possible overlays/banners that may block header clicks
+        try:
+            await _click_robust(
+                page,
+                [
+                    ("Cookie accept button", page.locator('button:has-text("Accept")').first),
+                    ("Cookie allow button", page.locator('button:has-text("Allow")').first),
+                    ("Got it button", page.locator('button:has-text("Got it")').first),
+                    ("OK button", page.locator('button:has-text("OK")').first),
+                    ("Close toast", page.locator('button[aria-label="Close"], svg[aria-label="Close"]').first),
+                ],
+                timeout=1200,
+            )
+        except Exception:
+            pass
+
+        # Wait for any header location button/address chip to render before attempting clicks.
+        await page.wait_for_timeout(300)
+        try:
+            await page.wait_for_selector(
+                'div.__6VhjW, button[aria-haspopup="dialog"][aria-label], button[aria-label="Select Location"], h3[data-testid="user-address"], button.__4y7HY, span.cTJX6L',
+                timeout=timeout,
+            )
+        except Exception:
+            pass
+
+        candidates = [
+            ("Header container-scoped dialog button", page.locator('div.__6VhjW').locator('button[aria-haspopup="dialog"]').first),
+            ("Header dialog button w/aria-label", page.locator('button[aria-haspopup="dialog"][aria-label]').first),
+            ("Header Select Location button", page.locator('button[aria-label="Select Location"]').first),
+            ("Header button containing user-address chip", page.locator('button:has(h3[data-testid="user-address"])').first),
+            ("H3 user-address chip", page.locator('h3[data-testid="user-address"]').first),
+            ("Header location role button", page.get_by_role("button", name=re.compile(r"Select Location|Deliver", re.I)).first),
+            ("Header __4y7HY button", page.locator('button.__4y7HY').first),
+            ("Generic span chip", page.locator('span.cTJX6L').first),
+            ("Delivery In container", page.locator('div[data-testid="delivery-time"]').locator('..').locator('button').first),
+        ]
+
+        # Debug: log candidate availability counts
+        try:
+            for desc, loc in candidates:
+                try:
+                    cnt = await loc.count()
+                    print(f"[DBG] Candidate '{desc}' count: {cnt}")
+                except Exception:
+                    print(f"[DBG] Candidate '{desc}' count: error")
+        except Exception:
+            pass
+
+        for attempt in range(4):
+            for desc, locator in candidates:
+                try:
+                    if await locator.count() == 0:
+                        continue
+                    await locator.scroll_into_view_if_needed()
+                    try:
+                        await locator.click(timeout=timeout)
+                    except Exception:
+                        await locator.click(timeout=timeout, force=True)
+                    print(f"➡️ Triggered location dialog via {desc} (attempt {attempt + 1}).")
+                    await page.wait_for_timeout(800)
+                    if await _dialog_visible(2500):
+                        return True
+                except Exception:
+                    continue
+
+            # Bounding-box fallback using mouse for the primary dialog button.
+            primary_chip = page.locator('button[aria-haspopup="dialog"][aria-label]').first
+            try:
+                if await primary_chip.count() > 0:
+                    box = await primary_chip.bounding_box()
+                    if box:
+                        await page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                        await page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                        await page.wait_for_timeout(800)
+                        if await _dialog_visible(2500):
+                            print("➡️ Triggered location dialog via mouse bounding-box fallback.")
+                            return True
+            except Exception:
+                pass
+
+            # Coordinate-based click using DOM bounding rect via JS (more resilient in headless)
+            try:
+                coords = await page.evaluate(
+                    """
+                    () => {
+                        const header = document.querySelector('div.__6VhjW');
+                        const btn = header ? header.querySelector('button[aria-haspopup="dialog"]') : null;
+                        const target = btn || document.querySelector('button[aria-haspopup="dialog"][aria-label]') || document.querySelector('button.__4y7HY');
+                        if (!target) return null;
+                        const r = target.getBoundingClientRect();
+                        return { x: Math.floor(r.left + r.width/2), y: Math.floor(r.top + r.height/2) };
+                    }
+                    """
+                )
+                if coords and isinstance(coords.get("x"), (int, float)) and isinstance(coords.get("y"), (int, float)):
+                    await page.mouse.click(coords["x"], coords["y"])
+                    await page.wait_for_timeout(800)
+                    if await _dialog_visible(2500):
+                        print("➡️ Triggered location dialog via coordinate-based click.")
+                        return True
+            except Exception:
+                pass
+
+            # Focus + Enter fallback
+            try:
+                if await primary_chip.count() > 0:
+                    await primary_chip.focus()
+                    await page.keyboard.press("Enter")
+                    await page.wait_for_timeout(600)
+                    if await _dialog_visible(2500):
+                        print("➡️ Triggered location dialog via keyboard Enter fallback.")
+                        return True
+            except Exception:
+                pass
+
+            # Keyboard Tab-walk fallback: focus header then Tab to the chip and Enter
+            try:
+                await page.keyboard.press("Home")
+                for _ in range(5):
+                    await page.keyboard.press("Tab")
+                    await page.wait_for_timeout(150)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(800)
+                if await _dialog_visible(2500):
+                    print("➡️ Triggered location dialog via keyboard Tab-walk fallback.")
+                    return True
+            except Exception:
+                pass
+
+            clicked_via_eval = await page.evaluate(
+                """
+                () => {
+                    const selectors = [
+                        'button[aria-haspopup="dialog"][aria-label]',
+                        'button[aria-label="Select Location"]',
+                        'button.__4y7HY',
+                        '[data-testid="user-address"]',
+                    ];
+                    for (const sel of selectors) {
+                        const el = document.querySelector(sel);
+                        if (el) {
+                            try {
+                                const evt = new MouseEvent('click', {bubbles:true,cancelable:true,view:window});
+                                el.dispatchEvent(evt);
+                                if (typeof el.click === 'function') el.click();
+                                return true;
+                            } catch(e) {}
+                        }
+                    }
+                    const header = document.querySelector('div.__6VhjW');
+                    const btn = header ? header.querySelector('button[aria-haspopup="dialog"]') : null;
+                    if (btn) {
+                        try {
+                            const evt = new MouseEvent('click', {bubbles:true,cancelable:true,view:window});
+                            btn.dispatchEvent(evt);
+                            if (typeof btn.click === 'function') btn.click();
+                            return true;
+                        } catch(e) {}
+                    }
+                    return false;
+                }
+                """
+            )
+            if clicked_via_eval:
+                await page.wait_for_timeout(800)
+                if await _dialog_visible(2500):
+                    print("➡️ Triggered location dialog via JS fallback.")
+                    return True
+
+            print(f"⚠️ Attempt {attempt + 1} failed to open location dialog; retrying...")
+            await page.wait_for_timeout(600)
+        return False
+    except Exception as exc:
+        print(f"⚠️ Unable to click location picker automatically: {exc}")
+        return False
+
+
+async def _select_location_from_search(page, location: str, suggestion_index: int = 0) -> bool:
+    """Open the location dialog, type the query, click a suggestion, and confirm."""
+    # If header already shows an address (not "Select Location"), proceed.
+    try:
+        header_text = await page.locator('h3[data-testid="user-address"]').first.text_content(timeout=1500)
+        print(f"[DBG] Header user-address text: {header_text!r}")
+        if header_text and 'select location' not in header_text.lower():
+            print("ℹ️ Header already shows a selected address; proceeding without reopening dialog.")
+            return True
+    except Exception:
+        pass
+
+    opened = await _open_location_picker(page)
+    if not opened:
+        # Try one more time: if address is visible, accept it and proceed.
+        try:
+            header_text = await page.locator('h3[data-testid="user-address"]').first.text_content(timeout=1500)
+            print(f"[DBG] Retry header user-address text: {header_text!r}")
+            if header_text and 'select location' not in header_text.lower():
+                print("ℹ️ Using already-selected header address as location.")
+                return True
+        except Exception:
+            pass
+        try:
+            search_link = page.locator('a[data-testid="search-bar-icon"]').first
+            if await search_link.count() > 0:
+                await search_link.click()
+                await page.wait_for_load_state('domcontentloaded')
+                await page.wait_for_timeout(600)
+                opened = await _open_location_picker(page, timeout=8000)
+        except Exception:
+            pass
+        if not opened:
+            # Direct navigation to search page as last resort, then retry open
+            try:
+                await page.goto('https://www.zeptonow.com/search', wait_until='domcontentloaded')
+                await page.wait_for_timeout(800)
+                opened = await _open_location_picker(page, timeout=8000)
+            except Exception:
+                pass
+        if not opened:
+            return False
+
+    try:
+        location_input = page.get_by_placeholder("Search a new address")
+        await location_input.wait_for(state="visible", timeout=5000)
+        await location_input.click()
+        await location_input.fill(location)
+        print("✅ Location entered.")
+
+        suggestions = page.locator('div[data-testid="address-search-item"]')
+        await suggestions.first.wait_for(state="visible", timeout=8000)
+        await page.wait_for_timeout(500)
+        suggestion = suggestions.nth(suggestion_index)
+        await suggestion.click()
+        print("✅ Location suggestion selected.")
+        await page.wait_for_timeout(1000)
+
+        try:
+            await _click_robust(
+                page,
+                [
+                    ("Confirm & Continue [data-testid]", page.get_by_test_id("location-confirm-btn")),
+                    ("Confirm & Continue button text", page.locator('button:has-text("Confirm & Continue")').first),
+                    ("Confirm & Continue role button", page.get_by_role("button", name=re.compile(r"Confirm .* Continue", re.I)).first),
+                ],
+                timeout=6000,
+            )
+            print("✅ Location confirmed via 'Confirm & Continue'.")
+            await page.wait_for_timeout(1000)
+        except Exception:
+            print("ℹ️ Confirm button not found; assuming location already applied.")
+        return True
+    except Exception as exc:
+        print(f"❌ Failed to select location: {exc}")
+        return False
 
 
 async def _ensure_location_selected(page, force_click: bool = False):
@@ -622,8 +938,16 @@ async def login_zepto(mobile_number: str, location: str, playwright):
     Returns the browser and page objects to continue the session.
     """
     print("\nStarting browser automation with Playwright for Zepto Login...")
-    browser = await playwright.chromium.launch(headless=True, slow_mo=100)
-    context = await browser.new_context()
+    browser = await playwright.chromium.launch(headless=True, slow_mo=50, args=HEADLESS_ARGS)
+    context = await browser.new_context(
+        viewport=DEFAULT_VIEWPORT,
+        user_agent=DESKTOP_USER_AGENT,
+        locale="en-US",
+        timezone_id="Asia/Kolkata",
+        geolocation=DEFAULT_GEOLOCATION,
+        permissions=["geolocation"],
+    )
+    context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
     page = await context.new_page()
 
     try:
@@ -632,55 +956,12 @@ async def login_zepto(mobile_number: str, location: str, playwright):
         await page.wait_for_load_state('networkidle')
         print("✅ Zepto homepage loaded.")
 
-        print("\n➡️ Clicking on 'Select Location' button...")
-        try:
-            select_location_button = page.get_by_role("button", name="Select Location")
-            await select_location_button.click(timeout=5000)
-            print("✅ 'Select Location' button clicked.")
-        except Exception as e:
-            print(f"❌ Error clicking 'Select Location' button: {e}")
+        print(f"\n➡️ Setting location to '{location}'...")
+        location_ok = await _select_location_from_search(page, location)
+        if not location_ok:
             await browser.close()
-            raise
-
-        print(f"\n➡️ Typing location '{location}' into the search bar...")
-        await asyncio.sleep(1)
-        location_input = page.get_by_placeholder("Search a new address")
-        await asyncio.sleep(1)
-        await location_input.fill(location)
-        print("✅ Location entered.")
-        await asyncio.sleep(1)
-
-        print("\n➡️ Waiting for location suggestions and selecting the first one...")
-        first_suggestion_selector = 'div[data-testid="address-search-item"]'
-        await page.wait_for_selector(first_suggestion_selector, timeout=10000)
-        print("✅ Suggestions appeared.")
-        await asyncio.sleep(1)
-        
-        await page.locator(first_suggestion_selector).first.click()
-        print("✅ First location suggestion selected.")
-        await asyncio.sleep(1.5)
-
-        print("\n➡️ Clicking 'Confirm & Continue'...")
-        try:
-            await _click_robust(
-                page,
-                [
-                    ("Confirm & Continue [data-testid]", page.get_by_test_id("location-confirm-btn")),
-                    ("Confirm & Continue by classes", page.locator("button.cpG2SV.cdW7ko.c0WLye.cBCT4J").first),
-                    ("Confirm & Continue role button text", page.get_by_role("button", name=re.compile(r"Confirm .* Continue|Confirm & Continue", re.I))),
-                    ("Confirm & Continue span text", page.locator('button:has(span:has-text("Confirm & Continue"))').first),
-                    ("Confirm & Continue text locator", page.locator('text="Confirm & Continue"').first),
-                    ("Confirm .* Continue text locator", page.locator('text=/Confirm .* Continue/i').first),
-                    ("Confirm & Continue div button", page.locator('div[role="button"]:has-text("Confirm & Continue")').first),
-                    ("Confirm location confirm xpath", page.locator('//button[contains(translate(normalize-space(.),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"confirm") and contains(translate(normalize-space(.),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"continue")]').first),
-                ],
-                timeout=7000,
-            )
-            print("✅ Location confirmed and set successfully!")
-            await page.wait_for_load_state('networkidle')
-        except Exception as e:
-            print(f"⚠️ 'Confirm & Continue' not clickable (possibly already applied). Proceeding to Login. Details: {e}")
-            await page.wait_for_timeout(1000)
+            raise RuntimeError("Unable to set Zepto location from search dialog.")
+        await page.wait_for_load_state('networkidle')
 
 
         print("\n➡️ Clicking on 'Login' button...")
