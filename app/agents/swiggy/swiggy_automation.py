@@ -293,8 +293,21 @@ async def search_swiggy(playwright_instance: async_playwright, location: str, qu
 
         # Now, click the search icon/bar
         print("🔍 Clicking the search navigation button...")
-        # Use a more specific locator for the search button on the home page
-        await page.locator('div[type="button"]:has-text("Search for restaurant, item or more")').click()
+        # Handle two different UI variations for the search button using an if/else condition.
+        search_selector_1 = 'div[type="button"]:has-text("Search for restaurant, item or more")'
+        search_selector_2 = 'a._3nTR3:has-text("Search")'
+
+        await asyncio.sleep(3)
+        
+        # Check which search element is visible and click it.
+        if await page.locator(search_selector_1).is_visible(timeout=5000):
+            print("  -> Found search bar (variation 1). Clicking it.")
+            await page.locator(search_selector_1).click()
+        elif await page.locator(search_selector_2).is_visible(timeout=5000):
+            print("  -> Found search link (variation 2). Clicking it.")
+            await page.locator(search_selector_2).click()
+        else:
+            raise Exception("Could not find the search button on the page after setting location.")
 
         # Wait for the search page to load completely
         await page.wait_for_load_state('networkidle', timeout=20000)
