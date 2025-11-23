@@ -22,6 +22,19 @@ router = APIRouter()
 # Note: This is not suitable for production with multiple server workers.
 sessions = {}
 
+DESKTOP_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/119.0.0.0 Safari/537.36"
+)
+DEFAULT_VIEWPORT = {"width": 1366, "height": 900}
+DEFAULT_GEOLOCATION = {"latitude": 19.0760, "longitude": 72.8777}
+HEADLESS_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-sandbox",
+]
+
 
 class LoginRequest(BaseModel):
     mobile_number: str
@@ -84,6 +97,30 @@ async def enter_otp(request: OtpRequest):
         if request.session_id in sessions:
             del sessions[request.session_id]
 
+
+async def _open_zepto_page(playwright, storage_state_path: str):
+    """Launch Chromium in headless mode with human-like settings and return (browser, page)."""
+    browser = await playwright.chromium.launch(
+        headless=True,
+        slow_mo=50,
+        args=HEADLESS_ARGS,
+    )
+    context = await browser.new_context(
+        storage_state=storage_state_path,
+        viewport=DEFAULT_VIEWPORT,
+        user_agent=DESKTOP_USER_AGENT,
+        locale="en-US",
+        timezone_id="Asia/Kolkata",
+        geolocation=DEFAULT_GEOLOCATION,
+        permissions=["geolocation"],
+    )
+    context.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+    )
+    page = await context.new_page()
+    await page.goto("https://www.zeptonow.com/", wait_until="domcontentloaded")
+    return browser, page
+
 @router.post("/zepto/search")
 async def search(request: SearchRequest):
     session_dir = os.path.join(os.path.dirname(__file__), "session_data")
@@ -101,10 +138,7 @@ async def search(request: SearchRequest):
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False, slow_mo=50)
-            context = await browser.new_context(storage_state=latest_session_file)
-            page = await context.new_page()
-            await page.goto("https://www.zeptonow.com/")
+            browser, page = await _open_zepto_page(p, latest_session_file)
             products = await search_products_zepto(page, request.query, max_items=(request.max_items or 20))
             await browser.close()
         return {"status": "success", "products": products}
@@ -125,10 +159,7 @@ async def add_to_cart(request: AddToCartRequest):
 
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False, slow_mo=50)
-            context = await browser.new_context(storage_state=latest_session_file)
-            page = await context.new_page()
-            await page.goto("https://www.zeptonow.com/")
+            browser, page = await _open_zepto_page(p, latest_session_file)
             await add_to_cart_and_checkout(page, request.product_name, request.quantity, request.upi_id, None)
             # Keep the browser open for the user to approve the payment on phone (if requested)
             if request.hold_seconds and request.hold_seconds > 0:
