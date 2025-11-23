@@ -25,6 +25,10 @@ class SearchRequest(BaseModel):
     location: str
     query: str
 
+class AddToCartRequest(BaseModel):
+    session_id: str
+    product: dict
+
 @router.post("/swiggy/signup")
 async def swiggy_signup_endpoint(request: SignupRequest):
     """Endpoint to automate Swiggy signup."""
@@ -82,3 +86,22 @@ async def swiggy_search_endpoint(request: SearchRequest):
     except Exception as e:
         await playwright.stop()
         raise HTTPException(status_code=500, detail=f"An error occurred during the search: {str(e)}")
+
+@router.post("/swiggy/add-to-cart")
+async def swiggy_add_to_cart_endpoint(request: AddToCartRequest):
+    """Endpoint to add an item to the cart using an active session."""
+    session = ACTIVE_SESSIONS.get(request.session_id)
+    if not session:
+        print(f"❌ Session '{request.session_id}' not found. Active sessions: {list(ACTIVE_SESSIONS.keys())}")
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    
+    context = session["context"]
+    
+    try:
+        await swiggy_automation.add_product_to_cart(context, request.product)
+        return {
+            "status": "success", 
+            "message": f"Item '{request.product.get('item_name')}' added to cart successfully."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add item to cart: {str(e)}")

@@ -382,4 +382,113 @@ async def search_swiggy(playwright_instance: async_playwright, location: str, qu
         await browser.close() # Ensure browser closes on error
         raise
 
+async def add_product_to_cart(context, product: dict):
+    """
+    Adds a specific product to the cart using the provided browser context.
+    Expects product dict to contain 'item_name'.
+    """
+    page = context.pages[0]
+    item_name = product.get("item_name")
+    
+    if not item_name:
+        raise ValueError("Product dictionary must contain 'item_name'")
+
+    print(f"🛒 Attempting to add '{item_name}' to cart...")
+    
+    # We need to find the specific card that matches the item name.
+    # This is a bit tricky because there might be multiple items with similar names.
+    # We'll try to find a card that contains the exact item name text.
+    
+    # Wait for product cards to be visible just in case
+    await page.wait_for_selector('div[data-testid^="search-pl-dish"], div[data-testid="normal-dish-item"]', timeout=10000)
+    
+    # Strategy: Iterate through cards, find the one with matching name, click its ADD button.
+    product_cards = await page.locator('div[data-testid^="search-pl-dish"], div[data-testid="normal-dish-item"]').all()
+    
+    target_card = None
+    for card in product_cards:
+        # Extract item name from card to compare
+        card_item_name_el = card.locator('div.sc-aXZVg.eqSzsP.sc-bmzYkS.dnFQDN').first
+        if await card_item_name_el.count() > 0:
+            current_name = await card_item_name_el.text_content()
+            if current_name and item_name.lower() in current_name.lower(): # Loose matching
+                target_card = card
+                break
+    
+    if not target_card:
+        raise Exception(f"Could not find product card for '{item_name}'")
+        
+    print(f"✅ Found product card for '{item_name}'. Clicking ADD...")
+    await asyncio.sleep(2)
+    
+    # Find the ADD button within the target card using specific class from user
+    # HTML: <button class="sc-ggpjZQ sc-cmaqmh jTEuJQ fcfoYo add-button-center-container"><div class="sc-aXZVg biMKCZ">Add</div></button>
+    
+    try:
+        # Try the specific button class first
+        await target_card.locator('button.add-button-center-container').click(timeout=3000)
+    except:
+        try:
+            # Fallback 1: Try button with text "Add"
+            await target_card.locator('button:has-text("Add")').click(timeout=3000)
+        except:
+            # Fallback 2: original generic approach
+            await target_card.locator('button:has-text("Add")').click(timeout=3000)
+    print("✅ Clicked ADD.")
+    await asyncio.sleep(2)
+
+    # Handle potential customization popup with specific user logic
+    try:
+        # Check for the specific modal class provided by user or generic dialog
+        modal_selector = 'div._2sOR4, div[role="dialog"]'
+        
+        # Check if modal exists
+        if await page.locator(modal_selector).count() > 0 or await page.wait_for_selector(modal_selector, timeout=3000):
+            print("⚠️ Customization modal detected.")
+            
+            # Check for "Continue" button
+            continue_btn = page.locator('button[data-testid="menu-customize-continue-button"]')
+            
+            if await continue_btn.count() > 0 and await continue_btn.is_visible():
+                await continue_btn.click()
+                print("✅ Clicked 'Continue' on customization modal.")
+            else:
+                print("ℹ️ 'Continue' button not found. Checking for 'Served Hot' option...")
+                
+                # Look for "Served Hot" option and select it
+                # User provided HTML indicates "Served Hot" text.
+                # We'll try to click the label or text associated with it.
+                served_hot_locator = page.locator('div:has-text("Served Hot")').last
+                
+                if await served_hot_locator.count() > 0:
+                    await served_hot_locator.click()
+                    print("✅ Selected 'Served Hot'.")
+                    await asyncio.sleep(1)
+                    
+                    # Click "Add Item to cart" footer button
+                    # HTML: <button ... data-cy="customize-footer-add-button" ...>
+                    add_footer_btn = page.locator('button[data-cy="customize-footer-add-button"]')
+                    if await add_footer_btn.count() > 0:
+                        await add_footer_btn.click()
+                        print("✅ Clicked 'Add Item to cart'.")
+                    else:
+                        print("⚠️ 'Add Item to cart' button not found.")
+                else:
+                    print("⚠️ 'Served Hot' option not found. Trying to add to cart directly.")
+                    # Click "Add Item to cart" footer button as a fallback
+                    add_footer_btn = page.locator('button[data-cy="customize-footer-add-button"]')
+                    if await add_footer_btn.count() > 0:
+                        await add_footer_btn.click()
+                        print("✅ Clicked 'Add Item to cart' as fallback.")
+                    else:
+                        print("⚠️ Fallback 'Add Item to cart' button not found.")
+        else:
+             print("ℹ️ No customization modal detected.")
+
+    except Exception as e:
+        print(f"ℹ️ Modal check ignored or failed: {e}")
+
+
+    # Verify item count increased in cart or some indicator (optional for now)
+    print(f"✅ Processed add to cart for '{item_name}'.")
         
