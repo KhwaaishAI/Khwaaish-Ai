@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from playwright.async_api import async_playwright
 import uuid
 import sys
@@ -33,6 +34,7 @@ class AddToCartRequest(BaseModel):
     session_id: str
     product_name: str
     quantity: int
+    upi_id: Optional[str] = None
 
 class AddAddressRequest(BaseModel):
     session_id: str
@@ -112,7 +114,13 @@ async def add_item_to_cart(request: AddToCartRequest):
 
     context = session["context"]
     try:
-        result = await add_product_to_cart(context, request.session_id, request.product_name, request.quantity)
+        result = await add_product_to_cart(
+            context,
+            request.session_id,
+            request.product_name,
+            request.quantity,
+            request.upi_id,
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add item to cart: {e}")
