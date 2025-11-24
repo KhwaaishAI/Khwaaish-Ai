@@ -49,7 +49,8 @@ async def search_and_add_item(page, item_name: str, quantity: int):
 
     try:
         product_card_selector = 'a.B4vNQ'
-        await page.wait_for_selector(product_card_selector, timeout=15000)
+        # SLA-driven: cap initial wait for product cards at 6s
+        await page.wait_for_selector(product_card_selector, timeout=6000)
         print("- Product results page loaded successfully.")
     except TimeoutError:
         print(f"⚠️ Could not find any products for '{item_name}' on the page. Skipping.")
@@ -110,15 +111,15 @@ async def search_and_add_item(page, item_name: str, quantity: int):
             timeout=6000,
         )
         print("- Clicked 'ADD' once.")
-        await page.wait_for_timeout(1000)
+        await page.wait_for_timeout(400)
         
         # Check if Super Saver popup appeared and close it
         try:
             close_button = page.locator('button.absolute.right-3').first
-            if await close_button.is_visible(timeout=2000):
+            if await close_button.is_visible(timeout=1500):
                 print("- Super Saver popup detected, closing it...")
                 await close_button.click(timeout=5000)
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(200)
         except Exception:
             pass
         
@@ -127,7 +128,7 @@ async def search_and_add_item(page, item_name: str, quantity: int):
                 plus_button = page.locator('button.cG8zC0[aria-label="Increase quantity"]').first
                 await plus_button.click(timeout=5000)
                 print(f"- Clicked '+' ({i+2}/{quantity})")
-                await page.wait_for_timeout(300)
+                await page.wait_for_timeout(150)
         print(f"✅ Successfully added {quantity} of '{item_name}' to cart.")
 
     except Exception as e:
@@ -138,18 +139,20 @@ async def search_products_zepto(page, query: str, max_items: int = 20):
     search_url = f"https://www.zeptonow.com/search?query={quote_plus(query)}"
     print(f"- Navigating to search page: {search_url}")
     await page.goto(search_url)
-    await _ensure_location_selected(page)
 
     product_card_selector = 'a.B4vNQ'
     for attempt in range(2):
         try:
-            await page.wait_for_selector(product_card_selector, timeout=15000)
+            # First try fast: 4s for cards. On failure, fix location & retry once a bit longer.
+            timeout_ms = 4000 if attempt == 0 else 6000
+            await page.wait_for_selector(product_card_selector, timeout=timeout_ms)
             break
         except TimeoutError:
             if attempt == 0:
-                print("⚠️ Product cards not visible yet. Trying to re-confirm location and retry search once more.")
+                print("⚠️ Product cards not visible yet. Re-confirming location and retrying search once.")
                 await _ensure_location_selected(page, force_click=True)
                 await page.reload()
+                await page.goto(search_url)
                 continue
             print("⚠️ No product cards rendered for Zepto search even after retry.")
             return []
@@ -197,7 +200,7 @@ async def add_to_cart_and_checkout(page, product_name: str, quantity: int, upi_i
             ("Click to Pay primary button (class)", page.locator('button.my-2\\.5.h-\\[52px\\].w-full.rounded-xl.text-center.bg-skin-primary').first),
             ("Click to Pay by text", page.get_by_role("button", name=re.compile(r"Click to Pay", re.I)).first),
         ],
-        timeout=7000,
+        timeout=5000,
     )
 
     await _handle_address_requirement(page, address_details)
@@ -562,7 +565,7 @@ async def _ensure_location_selected(page, force_click: bool = False):
     except Exception as exc:
         print(f"⚠️ Unable to auto-select Zepto location: {exc}")
 
-async def _select_saved_address_if_needed(page, timeout: int = 6000):
+async def _select_saved_address_if_needed(page, timeout: int = 4500):
     """If the address chooser modal appears, select the first saved address and confirm."""
     try:
         modal_locator = page.locator('div:has-text("Select an Address")').first
@@ -583,7 +586,7 @@ async def _select_saved_address_if_needed(page, timeout: int = 6000):
                 return False
         # Prefer the saved address tile within the saved list container
         saved_tile = modal_locator.locator('div.fsVuP div.cgG1vl').first
-        await saved_tile.wait_for(state="visible", timeout=2000)
+        await saved_tile.wait_for(state="visible", timeout=1500)
         await saved_tile.click()
         print("✅ Selected the first saved address from the modal.")
         await page.wait_for_timeout(500)
@@ -608,10 +611,10 @@ async def _select_saved_address_if_needed(page, timeout: int = 6000):
                     ("Confirm & Continue modal button", page.locator('button.cpG2SV.cdW7ko.c0WLye.cBCT4J').first),
                     ("Confirm & Continue [data-testid]", page.get_by_test_id("location-confirm-btn")),
                 ],
-                timeout=4000,
+                timeout=3000,
             )
             print("✅ Confirmed address via 'Confirm & Continue'.")
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(600)
         except Exception:
             pass
         return True
@@ -717,9 +720,11 @@ async def _handle_upi_payment(page, upi_id: str | None) -> bool:
     """Attempt to select UPI option, fill VPA, and click Verify & Pay."""
     if not upi_id:
         return False
-    await asyncio.sleep(2)
+    # Initial short delay for payment surface to appear
+    await asyncio.sleep(1.0)
     context = page.context
-    for attempt in range(4):
+    # Fewer, faster attempts to keep overall time low
+    for attempt in range(2):
         surfaces = []
         for p in context.pages:
             surfaces.append(p)
@@ -732,7 +737,8 @@ async def _handle_upi_payment(page, upi_id: str | None) -> bool:
                     return True
             except Exception:
                 continue
-        await asyncio.sleep(1.5)
+        # Short backoff between attempts
+        await asyncio.sleep(0.7)
     return False
 
 async def _try_upi_on_surface(surface, upi_id: str) -> bool:
@@ -745,7 +751,7 @@ async def _try_upi_on_surface(surface, upi_id: str) -> bool:
     upi_clicked = False
     for desc, locator in upi_candidates:
         try:
-            await locator.wait_for(state="visible", timeout=2000)
+            await locator.wait_for(state="visible", timeout=1500)
             await locator.scroll_into_view_if_needed()
             await locator.click(timeout=2000)
             print(f"✅ Selected UPI option via {desc}.")
@@ -756,7 +762,7 @@ async def _try_upi_on_surface(surface, upi_id: str) -> bool:
     if not upi_clicked:
         return False
 
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.2)
     input_candidates = [
         ("UPI input [testid]", surface.locator('input[testid="edt_vpa"]').first),
         ("UPI input by id", surface.locator('#20000267').first),
@@ -784,7 +790,7 @@ async def _try_upi_on_surface(surface, upi_id: str) -> bool:
     ]
     for desc, locator in verify_candidates:
         try:
-            await locator.wait_for(state="visible", timeout=4000)
+            await locator.wait_for(state="visible", timeout=2500)
             await locator.scroll_into_view_if_needed()
             try:
                 await locator.click(timeout=4000)
@@ -810,8 +816,7 @@ async def automate_zepto(shopping_list: dict, location: str, mobile_number: str,
 
     try:
         print("➡️ Navigating to https://www.zeptonow.com/")
-        await page.goto("https://www.zeptonow.com/")
-        await page.wait_for_load_state('networkidle')
+        await page.goto("https://www.zeptonow.com/", wait_until="domcontentloaded")
         print("✅ Zepto homepage loaded.")
 
         print("\n➡️ Clicking on 'Select Location' button...")
@@ -940,7 +945,8 @@ async def login_zepto(mobile_number: str, location: str, playwright):
     Returns the browser and page objects to continue the session.
     """
     print("\nStarting browser automation with Playwright for Zepto Login...")
-    browser = await playwright.chromium.launch(headless=True, slow_mo=50, args=HEADLESS_ARGS)
+    # Speed-optimised launch: no slow_mo, rely on DOM/network waits instead
+    browser = await playwright.chromium.launch(headless=True, slow_mo=0, args=HEADLESS_ARGS)
     context = await browser.new_context(
         viewport=DEFAULT_VIEWPORT,
         user_agent=DESKTOP_USER_AGENT,
@@ -954,18 +960,11 @@ async def login_zepto(mobile_number: str, location: str, playwright):
 
     try:
         print("➡️ Navigating to https://www.zeptonow.com/")
-        await page.goto("https://www.zeptonow.com/")
-        await page.wait_for_load_state('networkidle')
+        await page.goto("https://www.zeptonow.com/", wait_until="domcontentloaded")
         print("✅ Zepto homepage loaded.")
 
-        print(f"\n➡️ Setting location to '{location}'...")
-        location_ok = await _select_location_from_search(page, location)
-        if not location_ok:
-            await browser.close()
-            raise RuntimeError("Unable to set Zepto location from search dialog.")
-        await page.wait_for_load_state('networkidle')
-
-
+        # For login speed, skip explicit location selection here.
+        # Location is enforced later in search/add-to-cart flows.
         print("\n➡️ Clicking on 'Login' button...")
         await _click_robust(
             page,
@@ -978,14 +977,13 @@ async def login_zepto(mobile_number: str, location: str, playwright):
             timeout=6000,
         )
         print("✅ Login button clicked successfully.")
-        await page.wait_for_timeout(2000)
 
         print("\n➡️ Entering phone number...")
         try:
             phone_input = page.get_by_placeholder("Enter Phone Number")
+            await phone_input.wait_for(state="visible", timeout=8000)
             await phone_input.fill(mobile_number)
             print("✅ Phone number entered successfully.")
-            await page.wait_for_timeout(1000)
         except Exception as e:
             print(f"❌ Error entering phone number: {e}")
             await browser.close()
@@ -1024,9 +1022,10 @@ async def enter_otp_zepto(page, otp: str):
         await page.wait_for_selector(otp_input_selector, timeout=10000)
         
         await page.locator(otp_input_selector).first.fill(otp)
-        
+
         print("✅ OTP entered successfully.")
-        await page.wait_for_timeout(5000) # Wait for login to complete
+        # Short wait only; API caller will assume success once filled
+        await page.wait_for_timeout(800)
 
     except Exception as e:
         print(f"❌ Error entering OTP: {e}")
