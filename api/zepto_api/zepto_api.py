@@ -101,7 +101,7 @@ async def enter_otp(request: OtpRequest):
 async def _open_zepto_page(playwright, storage_state_path: str):
     """Launch Chromium in headless mode with human-like settings and return (browser, page)."""
     browser = await playwright.chromium.launch(
-        headless=False,
+        headless=True,
         slow_mo=0,
         args=HEADLESS_ARGS,
     )
