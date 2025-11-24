@@ -469,11 +469,12 @@ async def add_product_to_cart(context, product: dict):
     """
     page = context.pages[0]
     item_name = product.get("item_name")
+    restaurant_name = product.get("restaurant_name")
     
-    if not item_name:
-        raise ValueError("Product dictionary must contain 'item_name'")
+    if not item_name or not restaurant_name:
+        raise ValueError("Product dictionary must contain both 'item_name' and 'restaurant_name'")
 
-    print(f"🛒 Attempting to add '{item_name}' to cart...")
+    print(f"🛒 Attempting to add '{item_name}' from '{restaurant_name}' to cart...")
     
     # We need to find the specific card that matches the item name.
     # This is a bit tricky because there might be multiple items with similar names.
@@ -486,23 +487,38 @@ async def add_product_to_cart(context, product: dict):
     product_cards = await page.locator('div[data-testid^="search-pl-dish"], div[data-testid="normal-dish-item"]').all()
     
     target_card = None
+    # This will hold the most recently seen restaurant name as we iterate
+    current_restaurant_for_card = "N/A"
+
     for card in product_cards:
-        # Extract item name from card to compare
+        # Check if the card is a restaurant header, and if so, update our current restaurant context
+        is_restaurant_header = await card.evaluate('element => element.getAttribute("data-testid")?.startsWith("search-pl-dish")')
+        if is_restaurant_header:
+            restaurant_name_el = card.locator('div._1P-Lf._2PDpZ').first
+            if await restaurant_name_el.count() > 0:
+                raw_name = await restaurant_name_el.text_content()
+                # Clean up the "By " prefix
+                current_restaurant_for_card = raw_name[3:] if raw_name and raw_name.lower().startswith('by ') else raw_name
+
+        # Now, extract the item name from the card to compare
         card_item_name_el = card.locator('div.sc-aXZVg.eqSzsP.sc-bmzYkS.dnFQDN').first
         if await card_item_name_el.count() > 0:
             current_name = await card_item_name_el.text_content()
-            if current_name and item_name.lower() in current_name.lower(): # Loose matching
+
+            # Check if both restaurant name and item name match
+            restaurant_match = restaurant_name.lower() in current_restaurant_for_card.lower()
+            item_match = item_name.lower() in current_name.lower()
+
+            if restaurant_match and item_match:
                 target_card = card
                 break
     
     if not target_card:
-        raise Exception(f"Could not find product card for '{item_name}'")
+        raise Exception(f"Could not find product card for '{item_name}' from restaurant '{restaurant_name}'")
         
-    print(f"✅ Found product card for '{item_name}'. Clicking ADD...")
+    print(f"✅ Found product card for '{item_name}' from '{restaurant_name}'. Clicking ADD...")
     await asyncio.sleep(2)
     
-    # Find the ADD button within the target card using specific class from user
-    # HTML: <button class="sc-ggpjZQ sc-cmaqmh jTEuJQ fcfoYo add-button-center-container"><div class="sc-aXZVg biMKCZ">Add</div></button>
     
     try:
         # Try the specific button class first
