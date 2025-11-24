@@ -101,7 +101,7 @@ async def enter_otp(request: OtpRequest):
 async def _open_zepto_page(playwright, storage_state_path: str):
     """Launch Chromium in headless mode with human-like settings and return (browser, page)."""
     browser = await playwright.chromium.launch(
-        headless=True,
+        headless=False,
         slow_mo=0,
         args=HEADLESS_ARGS,
     )
@@ -161,10 +161,10 @@ async def add_to_cart(request: AddToCartRequest):
         async with async_playwright() as p:
             browser, page = await _open_zepto_page(p, latest_session_file)
             await add_to_cart_and_checkout(page, request.product_name, request.quantity, request.upi_id, None)
-            # Keep the browser open briefly if requested, but cap to a small value
-            if request.hold_seconds and request.hold_seconds > 0:
-                effective_hold = min(request.hold_seconds, 5)
-                await page.wait_for_timeout(effective_hold * 1000)
+            # For debugging, keep the browser open on the payment page for up to 120s
+            effective_hold = request.hold_seconds if request.hold_seconds and request.hold_seconds > 0 else 120
+            effective_hold = min(effective_hold, 120)
+            await page.wait_for_timeout(effective_hold * 1000)
             await browser.close()
         return {
             "status": "success",

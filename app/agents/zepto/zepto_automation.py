@@ -762,6 +762,104 @@ async def _try_upi_on_surface(surface, upi_id: str) -> bool:
     if not upi_clicked:
         return False
 
+    # First, try to use a saved UPI ID if one is present.
+    try:
+        saved_vpa_container = surface.locator('[testid^="pi_upi_"]').first
+        saved_vpa_select = saved_vpa_container.locator('[testid="clk_select"]').first
+        if await saved_vpa_container.count() > 0:
+            await saved_vpa_select.wait_for(state="visible", timeout=2000)
+            await saved_vpa_select.scroll_into_view_if_needed()
+            await saved_vpa_select.click(timeout=2000)
+            print("✅ Selected saved UPI ID from list.")
+
+            # Click the Proceed to Pay button for saved UPI.
+            # Use the owning page (frame.page if surface is a frame) so we see
+            # the button even if it is rendered in a sibling container/frame.
+            page_obj = getattr(surface, "page", None) or surface
+            proceed_candidates = [
+                ("Proceed to Pay container #20000313", page_obj.locator('#20000313').first),
+                ("Proceed to Pay inner container #20000312", page_obj.locator('#20000312').first),
+                ("Proceed to Pay saved btn container #20000383", page_obj.locator('#20000383').first),
+                ("Proceed to Pay saved btn [testid=btn_pay]", page_obj.locator('[testid="btn_pay"]').first),
+                ("Proceed to Pay enabled button", page_obj.locator('[testid="btn_enabled"]').first),
+                ("Proceed to Pay msg_text grandparent", page_obj.locator('[testid="msg_text"]:has-text("Proceed to Pay")').locator('..').locator('..').first),
+                ("Proceed to Pay msg_text parent", page_obj.locator('[testid="msg_text"]:has-text("Proceed to Pay")').locator('..').first),
+                ("Proceed to Pay text button", page_obj.locator('div[role="button"]:has-text("Proceed to Pay")').first),
+                ("Proceed to Pay msg_text", page_obj.locator('[testid="msg_text"]:has-text("Proceed to Pay")').first),
+                ("Proceed to Pay generic text", page_obj.locator('text="Proceed to Pay"').first),
+            ]
+            for desc, locator in proceed_candidates:
+                try:
+                    await locator.wait_for(state="visible", timeout=2500)
+                    await locator.scroll_into_view_if_needed()
+                    # Try normal click, then bounding-box mouse click as fallback
+                    try:
+                        await locator.click(timeout=3000)
+                    except Exception:
+                        try:
+                            box = await locator.bounding_box()
+                            if box:
+                                await page_obj.mouse.click(
+                                    box["x"] + box["width"] / 2,
+                                    box["y"] + box["height"] / 2,
+                                )
+                            else:
+                                raise
+                        except Exception:
+                            raise
+                    print(f"✅ Clicked {desc} for saved UPI.")
+                    return True
+                except Exception:
+                    continue
+
+            # Last-resort JS fallback: first try explicit Proceed to Pay IDs,
+            # then find the msg_text and click its closest interactive ancestor.
+            try:
+                clicked = await page_obj.evaluate(
+                    """
+                    () => {
+                        // Direct ID-based click if known containers exist
+                        const byId = document.getElementById('20000313') || document.getElementById('20000312');
+                        if (byId) {
+                            try {
+                                byId.click();
+                                return true;
+                            } catch (e) {}
+                        }
+
+                        const nodes = Array.from(document.querySelectorAll('[testid="msg_text"]'));
+                        for (const n of nodes) {
+                            if (!n.textContent || !n.textContent.includes('Proceed to Pay')) continue;
+                            let el = n;
+                            // Walk up a few levels to find a clickable container
+                            for (let i = 0; i < 4 && el; i++) {
+                                const style = window.getComputedStyle(el);
+                                const isPointer = style.cursor === 'pointer';
+                                const hasRoleButton = el.getAttribute('role') === 'button';
+                                const hasOnClick = typeof el.onclick === 'function';
+                                if (isPointer || hasRoleButton || hasOnClick) {
+                                    try {
+                                        el.click();
+                                        return true;
+                                    } catch (e) {}
+                                }
+                                el = el.parentElement;
+                            }
+                        }
+                        return false;
+                    }
+                    """
+                )
+                if clicked:
+                    print("✅ Clicked Proceed to Pay via JS fallback for saved UPI.")
+                    return True
+            except Exception:
+                pass
+    except Exception:
+        # If anything goes wrong, fall back to manual VPA entry.
+        pass
+
+    # Fallback: no saved UPI selected, use manual VPA entry with provided upi_id
     await asyncio.sleep(0.2)
     input_candidates = [
         ("UPI input [testid]", surface.locator('input[testid="edt_vpa"]').first),
