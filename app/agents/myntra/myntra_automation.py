@@ -42,6 +42,8 @@ async def initiate_login(playwright_instance: async_playwright, mobile_number: s
     try:
         await page.goto("https://www.myntra.com/login", wait_until="domcontentloaded", timeout=60000)
         print("✅ Myntra login page loaded.")
+        await asyncio.sleep(5)
+
 
         # Enter mobile number
         print(f"📱 Filling mobile number: {mobile_number}...")
@@ -49,15 +51,33 @@ async def initiate_login(playwright_instance: async_playwright, mobile_number: s
         mobile_input = page.locator('input.form-control.mobileNumberInput')
         await mobile_input.wait_for(state="visible", timeout=10000)
         await mobile_input.fill(mobile_number)
+        await asyncio.sleep(2)
+
+
+        # Handle Consent Checkbox (if present)
+        try:
+            # Look for a checkbox, often required for new logins or specific regions
+            checkbox = page.locator('input[type="checkbox"].consentCheckbox') # Prioritize specific class
+            if await checkbox.count() == 0:
+                checkbox = page.locator('input[type="checkbox"]') # Fallback to any checkbox
+            
+            if await checkbox.count() > 0:
+                print("☑️ Found checkbox. Checking state...")
+                if not await checkbox.is_checked():
+                    await checkbox.click()
+                    print("✅ Consent checkbox clicked.")
+                else:
+                    print("ℹ️ Checkbox already checked.")
+            else:
+                print("ℹ️ No consent checkbox found.")
+        except Exception as e:
+            print(f"⚠️ Error handling checkbox: {e}")
 
         # Click Continue
+        await asyncio.sleep(2)
         print("👆 Clicking 'Continue'...")
-        continue_btn = page.locator('div.submitBottomOption, button:has-text("CONTINUE")')
+        continue_btn = page.locator('div.submitBottomOption, div.disabledSubmitBottomOption, button:has-text("CONTINUE")')
         await continue_btn.click()
-        
-        print("✅ Mobile number submitted. Waiting for OTP screen...")
-        # Wait for OTP input to confirm we are on the next screen
-        await page.wait_for_selector('input[type="text"], input[type="number"]', timeout=10000)
         
         return context
     except Exception as e:
@@ -86,20 +106,9 @@ async def verify_otp_and_save_session(context, otp: str):
         else:
             print("ℹ️ Detected single OTP field (or fewer than 4). Filling directly.")
             await page.locator('input[type="tel"], input[type="number"]').first.fill(otp)
+        
+        await asyncio.sleep(10)
 
-        # Wait for automatic verification or click verify if exists
-        # Myntra often auto-verifies. We'll wait a bit.
-        await asyncio.sleep(2)
-        
-        # Check if we are logged in. Look for profile icon or check URL.
-        # If there's a login button still, try clicking it.
-        login_btn = page.locator('button:has-text("LOGIN"), div.submitBottomOption')
-        if await login_btn.is_visible():
-            print("👆 Clicking 'LOGIN' button...")
-            await login_btn.click()
-        
-        await page.wait_for_load_state('networkidle', timeout=15000)
-        
         # Verify login success by checking for "Profile" or absence of "Login"
         print("✅ Login likely successful. Saving state...")
         await context.storage_state(path=MYNTRA_AUTH_FILE_PATH)
@@ -129,6 +138,7 @@ async def search_myntra(playwright_instance: async_playwright, query: str):
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
     page = await context.new_page()
+    await asyncio.sleep(2)
 
     try:
         await page.goto(f"https://www.myntra.com/{quote_plus(query)}", wait_until="domcontentloaded", timeout=60000)
@@ -139,28 +149,46 @@ async def search_myntra(playwright_instance: async_playwright, query: str):
         product_cards = await page.locator('li.product-base').all()
         print(f"ℹ️ Found {len(product_cards)} products.")
         
-        for i, card in enumerate(product_cards[:10]):
+        for i, card in enumerate(product_cards):
             try:
-                brand = await card.locator('h3.product-brand').text_content()
-                name = await card.locator('h4.product-product').text_content()
-                price_element = card.locator('span.product-discountedPrice')
-                if not await price_element.count():
-                    price_element = card.locator('div.product-price span').first
+                # Helper to safely get text content
+                async def get_text(locator):
+                    return await locator.text_content() if await locator.count() > 0 else None
+
+                brand = await get_text(card.locator('h3.product-brand'))
+                name = await get_text(card.locator('h4.product-product'))
                 
-                price = await price_element.text_content()
+                # Price details
+                price_element = card.locator('span.product-discountedPrice')
+                original_price_element = card.locator('span.product-strike')
+                discount_element = card.locator('span.product-discountPercentage')
+                
+                price = await get_text(price_element)
+                # If no discounted price, try to get the main price
+                if not price:
+                    price = await get_text(card.locator('div.product-price > span').first)
+
+                # Rating details
+                rating = await get_text(card.locator('div.product-ratingsContainer > span').first)
+                rating_count = await get_text(card.locator('div.product-ratingsCount'))
+
                 link = await card.locator('a').get_attribute('href')
                 
                 products.append({
                     "brand": brand,
                     "name": name,
                     "price": price,
+                    "original_price": await get_text(original_price_element),
+                    "discount": await get_text(discount_element),
+                    "rating": rating,
+                    "rating_count": rating_count.replace('|', '').strip() if rating_count else None,
                     "url": f"https://www.myntra.com/{link}" if link and not link.startswith('http') else link
                 })
             except Exception as e:
                 print(f"⚠️ Error scraping card {i}: {e}")
                 continue
-                
         await browser.close()
+                
         return products
     except Exception as e:
         print(f"❌ Error during search: {e}")
@@ -186,6 +214,7 @@ async def add_to_cart(playwright_instance: async_playwright, product_url: str, s
     try:
         await page.goto(product_url, wait_until="domcontentloaded", timeout=60000)
         print("✅ Product page loaded.")
+        await asyncio.sleep(2)
         
         # Select Size
         # Myntra size buttons usually have class 'size-buttons-size-button'
@@ -215,13 +244,16 @@ async def add_to_cart(playwright_instance: async_playwright, product_url: str, s
             print("⚠️ No size buttons found (might be one-size or out of stock).")
 
         # Click Add to Bag
+        await asyncio.sleep(2)
         print("👆 Clicking 'Add to Bag'...")
         add_btn = page.locator('div.pdp-add-to-bag, button:has-text("ADD TO BAG")')
         await add_btn.click()
+        await asyncio.sleep(2)
         
         # Wait for confirmation (Go to Bag button usually appears)
         await page.wait_for_selector('a.pdp-goToCart, span:has-text("GO TO BAG")', timeout=10000)
         print("✅ Added to bag successfully.")
+        await asyncio.sleep(2)
         
         await browser.close()
         return "Successfully added to bag"
