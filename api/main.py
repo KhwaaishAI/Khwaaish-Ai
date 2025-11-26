@@ -11,6 +11,8 @@ from api.ride_booking_api import api
 from api.blinkit_api.blinkit_api import router as blinkit_router
 from api.zepto_api.zepto_api import router as zepto_router
 from api.swiggy_api.swiggy_api import router as swiggy_router
+from api.district_api.district_api import router as district_router
+
 import uvicorn
 
 # -------------------------------------------------
@@ -55,6 +57,7 @@ app.include_router(api.router, prefix="/ride-booking", tags=["ride-booking"])
 app.include_router(blinkit_router, prefix="/api", tags=["blinkit"])
 app.include_router(zepto_router, prefix="/api", tags=["zepto"])
 app.include_router(swiggy_router, prefix="/api", tags=["swiggy"])
+app.include_router(district_router, prefix="/api", tags=["district"])
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8001)
