@@ -335,51 +335,108 @@ async def search_swiggy(playwright_instance: async_playwright, location: str, qu
         print("✅ Search results page loaded. Starting data extraction.")
 
         product_data = []
-        seen_products = set()  # Set to track unique products
-        # Locate all product cards. Using data-testid for robustness.
-        # Refined selector to target only the direct containers of dish items to prevent nesting issues.
-        product_cards = await page.locator('div[data-testid="dish-item-container"], div[data-testid="normal-dish-item"]').all()
+        seen_products = set()
+        
+        # Initialize current restaurant details, these will be updated when a restaurant card is encountered
+        current_restaurant_name = "N/A"
+        current_rating = "N/A"
+        current_delivery_time = "N/A"
+
+        # Locate all product cards, including main restaurant cards and individual dish items
+        product_cards = await page.locator('div[data-testid^="search-pl-dish"], div[data-testid="dish-item-container"], div[data-testid="normal-dish-item"]').all()
         print(f"Found {len(product_cards)} product cards.")
 
         for i, card in enumerate(product_cards[:30]):
             try:
-                restaurant_name = await card.locator('div._1P-Lf._2PDpZ').first.text_content() if await card.locator('div._1P-Lf._2PDpZ').count() > 0 else "N/A"
-                rating = await card.locator('span._30uSg').first.text_content() if await card.locator('span._30uSg').count() > 0 else "N/A"
-                delivery_time = await card.locator('div:has-text("MINS")').first.text_content() if await card.locator('div:has-text("MINS")').count() > 0 else "N/A"
-                
-                # Item Name - often in a specific div or from description
-                item_name_element = card.locator('div.sc-aXZVg.eqSzsP.sc-bmzYkS.dnFQDN').first
-                item_name = await item_name_element.text_content() if await item_name_element.count() > 0 else "N/A"
+                # Determine if this 'card' is a restaurant header card or an individual dish item
+                is_restaurant_header_card = await card.evaluate('element => element.hasAttribute("data-testid") && element.getAttribute("data-testid").startsWith("search-pl-dish")')
 
-                # Price
-                price_element = card.locator('div.sc-aXZVg.chixpw').first
-                price = await price_element.text_content() if await price_element.count() > 0 else "N/A"
+                if is_restaurant_header_card:
+                    # This card is a restaurant header. Extract its details and update current_restaurant_name, etc.
+                    # The restaurant name is in div._1P-Lf._2PDpZ
+                    restaurant_name_element = card.locator('div._1P-Lf._2PDpZ').first
+                    if await restaurant_name_element.count() > 0:
+                        current_restaurant_name = await restaurant_name_element.text_content()
+                        if current_restaurant_name and current_restaurant_name.lower().startswith('by '):
+                            current_restaurant_name = current_restaurant_name[3:]
+                    else:
+                        current_restaurant_name = "N/A"
 
-                # Original Price (if discounted)
-                original_price_element = card.locator('div.sc-aXZVg.htLzaO.sc-gEvEer.hTspMV').first
-                original_price = await original_price_element.text_content() if await original_price_element.count() > 0 else "N/A"
+                    # Rating is in span._30uSg
+                    rating_element = card.locator('span._30uSg').first
+                    current_rating = await rating_element.text_content() if await rating_element.count() > 0 else "N/A"
 
-                # Description and Veg/Non-Veg status
-                description_element = card.locator('p._1QbUq').first
-                description = await description_element.text_content() if await description_element.count() > 0 else "N/A"
-                is_veg = "Veg Item." in description
+                    # Delivery time is in div.ILmOQ div:has-text("MINS")
+                    delivery_time_element = card.locator('div.ILmOQ div:has-text("MINS")').first
+                    current_delivery_time = await delivery_time_element.text_content() if await delivery_time_element.count() > 0 else "N/A"
 
-                # Create a unique identifier based on item name and price to handle duplicates
-                product_identifier = (item_name.strip(), price.strip())
+                    # Now, this restaurant header card also contains the *first* dish item within it.
+                    # We need to extract the dish details from this nested element.
+                    dish_element_to_process = card.locator('div[data-testid="normal-dish-item"]').first
+                    if await dish_element_to_process.count() > 0:
+                        # Extract dish-specific details from dish_element_to_process
+                        item_name_element = dish_element_to_process.locator('div.sc-aXZVg.eqSzsP.sc-bmzYkS.dnFQDN').first
+                        item_name = await item_name_element.text_content() if await item_name_element.count() > 0 else "N/A"
 
-                if product_identifier in seen_products:
-                    continue # Skip if we've already processed this exact product
+                        price_element = dish_element_to_process.locator('div.sc-aXZVg.chixpw').first
+                        price = await price_element.text_content() if await price_element.count() > 0 else "N/A"
 
-                product_details = {
-                    "restaurant_name": restaurant_name.strip(),
-                    "item_name": item_name.strip(),
-                    "rating": rating.strip(),                    
-                    "price": price.strip(),
-                    "original_price": original_price.strip() if original_price != "N/A" else None,
-                    "is_veg": is_veg
-                }
-                product_data.append(product_details)
-                seen_products.add(product_identifier)
+                        original_price_element = dish_element_to_process.locator('div.sc-aXZVg.htLzaO.sc-gEvEer.hTspMV').first
+                        original_price = await original_price_element.text_content() if await original_price_element.count() > 0 else "N/A"
+
+                        description_element = dish_element_to_process.locator('p._1QbUq').first
+                        description = await description_element.text_content() if await description_element.count() > 0 else "N/A"
+                        is_veg = "Veg Item." in description
+
+                        product_identifier = (item_name.strip(), price.strip(), current_restaurant_name.strip())
+                        if product_identifier not in seen_products:
+                            product_details = {
+                                "restaurant_name": current_restaurant_name.strip(),
+                                "item_name": item_name.strip(),
+                                "rating": current_rating.strip(),
+                                "delivery_time": current_delivery_time.strip(),
+                                "price": price.strip(),
+                                "original_price": original_price.strip() if original_price != "N/A" else None,
+                                "is_veg": is_veg
+                            }
+                            product_data.append(product_details)
+                            seen_products.add(product_identifier)
+                    else:
+                        print(f"⚠️ Restaurant header card {i} found but no immediate dish item within it. Skipping this card as a dish.")
+
+                else:  # This card is an individual dish item (e.g., data-testid="normal-dish-item" or "dish-item-container")
+                    # Use the most recently updated restaurant details (current_restaurant_name, current_rating, current_delivery_time)
+                    # Item Name
+                    item_name_element = card.locator('div.sc-aXZVg.eqSzsP.sc-bmzYkS.dnFQDN').first
+                    item_name = await item_name_element.text_content() if await item_name_element.count() > 0 else "N/A"
+
+                    # Price
+                    price_element = card.locator('div.sc-aXZVg.chixpw').first
+                    price = await price_element.text_content() if await price_element.count() > 0 else "N/A"
+
+                    # Original Price (if discounted)
+                    original_price_element = card.locator('div.sc-aXZVg.htLzaO.sc-gEvEer.hTspMV').first
+                    original_price = await original_price_element.text_content() if await original_price_element.count() > 0 else "N/A"
+
+                    # Description and Veg/Non-Veg status
+                    description_element = card.locator('p._1QbUq').first
+                    description = await description_element.text_content() if await description_element.count() > 0 else "N/A"
+                    is_veg = "Veg Item." in description
+
+                    product_identifier = (item_name.strip(), price.strip(), current_restaurant_name.strip())
+                    if product_identifier not in seen_products:
+                        product_details = {
+                            "restaurant_name": current_restaurant_name.strip(),
+                            "item_name": item_name.strip(),
+                            "rating": current_rating.strip(),
+                            "delivery_time": current_delivery_time.strip(),
+                            "price": price.strip(),
+                            "original_price": original_price.strip() if original_price != "N/A" else None,
+                            "is_veg": is_veg
+                        }
+                        product_data.append(product_details)
+                        seen_products.add(product_identifier)
+
             except Exception as e:
                 print(f"Error extracting data for card {i}: {e}")
                 continue
@@ -412,11 +469,12 @@ async def add_product_to_cart(context, product: dict):
     """
     page = context.pages[0]
     item_name = product.get("item_name")
+    restaurant_name = product.get("restaurant_name")
     
-    if not item_name:
-        raise ValueError("Product dictionary must contain 'item_name'")
+    if not item_name or not restaurant_name:
+        raise ValueError("Product dictionary must contain both 'item_name' and 'restaurant_name'")
 
-    print(f"🛒 Attempting to add '{item_name}' to cart...")
+    print(f"🛒 Attempting to add '{item_name}' from '{restaurant_name}' to cart...")
     
     # We need to find the specific card that matches the item name.
     # This is a bit tricky because there might be multiple items with similar names.
@@ -429,23 +487,38 @@ async def add_product_to_cart(context, product: dict):
     product_cards = await page.locator('div[data-testid^="search-pl-dish"], div[data-testid="normal-dish-item"]').all()
     
     target_card = None
+    # This will hold the most recently seen restaurant name as we iterate
+    current_restaurant_for_card = "N/A"
+
     for card in product_cards:
-        # Extract item name from card to compare
+        # Check if the card is a restaurant header, and if so, update our current restaurant context
+        is_restaurant_header = await card.evaluate('element => element.getAttribute("data-testid")?.startsWith("search-pl-dish")')
+        if is_restaurant_header:
+            restaurant_name_el = card.locator('div._1P-Lf._2PDpZ').first
+            if await restaurant_name_el.count() > 0:
+                raw_name = await restaurant_name_el.text_content()
+                # Clean up the "By " prefix
+                current_restaurant_for_card = raw_name[3:] if raw_name and raw_name.lower().startswith('by ') else raw_name
+
+        # Now, extract the item name from the card to compare
         card_item_name_el = card.locator('div.sc-aXZVg.eqSzsP.sc-bmzYkS.dnFQDN').first
         if await card_item_name_el.count() > 0:
             current_name = await card_item_name_el.text_content()
-            if current_name and item_name.lower() in current_name.lower(): # Loose matching
+
+            # Check if both restaurant name and item name match
+            restaurant_match = restaurant_name.lower() in current_restaurant_for_card.lower()
+            item_match = item_name.lower() in current_name.lower()
+
+            if restaurant_match and item_match:
                 target_card = card
                 break
     
     if not target_card:
-        raise Exception(f"Could not find product card for '{item_name}'")
+        raise Exception(f"Could not find product card for '{item_name}' from restaurant '{restaurant_name}'")
         
-    print(f"✅ Found product card for '{item_name}'. Clicking ADD...")
+    print(f"✅ Found product card for '{item_name}' from '{restaurant_name}'. Clicking ADD...")
     await asyncio.sleep(2)
     
-    # Find the ADD button within the target card using specific class from user
-    # HTML: <button class="sc-ggpjZQ sc-cmaqmh jTEuJQ fcfoYo add-button-center-container"><div class="sc-aXZVg biMKCZ">Add</div></button>
     
     try:
         # Try the specific button class first
@@ -459,6 +532,20 @@ async def add_product_to_cart(context, product: dict):
             await target_card.locator('button:has-text("Add")').click(timeout=3000)
     print("✅ Clicked ADD.")
     await asyncio.sleep(2)
+
+    # Handle "Items already in cart" popup
+    try:
+        # Check for the presence of the popup using a distinctive element or text
+        cart_reset_popup_selector = 'div._2LzP9:has-text("Items already in cart")'
+        if await page.locator(cart_reset_popup_selector).is_visible(timeout=5000):
+            print("⚠️ 'Items already in cart' popup detected. Clicking 'Yes, start afresh'.")
+            yes_start_afresh_button = page.locator('button.hoJL8:has-text("Yes, start afresh")')
+            await yes_start_afresh_button.click()
+            print("✅ Clicked 'Yes, start afresh'.")
+            await asyncio.sleep(2) # Give some time for the cart to reset and page to update
+    except Exception as e:
+        print(f"ℹ️ No 'Items already in cart' popup or error handling it: {e}")
+
 
     # Handle potential customization popup with specific user logic
     try:
