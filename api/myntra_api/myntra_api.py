@@ -14,7 +14,8 @@ from app.agents.myntra.myntra_automation import (
     verify_otp_and_save_session,
     search_myntra,
     add_to_cart,
-    book_order
+    add_new_address,
+    enter_upi_and_pay
 )
 
 router = APIRouter()
@@ -36,6 +37,22 @@ class SearchRequest(BaseModel):
 class AddToCartRequest(BaseModel):
     product_url: str
     size: str = None
+
+class AddressRequest(BaseModel):
+    session_id: str
+    name: str
+    mobile: str
+    pincode: str
+    house_number: str
+    street_address: str
+    locality: str
+    address_type: str = "HOME"  # "HOME" or "OFFICE"
+    make_default: bool = False
+
+class UpiPaymentRequest(BaseModel):
+    session_id: str
+    upi_id: str
+
 
 @router.on_event("startup")
 async def startup_event():
@@ -86,16 +103,37 @@ async def search(request: SearchRequest):
 @router.post("/myntra/add-to-cart")
 async def add_item(request: AddToCartRequest):
     try:
-        result = await add_to_cart(playwright_instance, request.product_url, request.size)
-        return {"status": "success", "message": result}
+        result_data = await add_to_cart(playwright_instance, request.product_url, request.size)
+        
+        # If the process requires adding an address, keep the session active
+        if "session_id" in result_data:
+            ACTIVE_SESSIONS[result_data["session_id"]] = result_data["context"]
+            return {
+                "status": "address_required",
+                "session_id": result_data["session_id"],
+                "message": result_data["message"]
+            }
+            
+        return {"status": "success", "message": result_data["message"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/myntra/book")
-async def book():
-    try:
-        result = await book_order(playwright_instance)
-        return {"status": "success", "message": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@router.post("/myntra/add-address")
+async def add_address_endpoint(request: AddressRequest):
+    context = ACTIVE_SESSIONS.get(request.session_id)
+    if not context:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    
+    result_message = await add_new_address(context, request.dict())
+    ACTIVE_SESSIONS.pop(request.session_id, None) # Clean up session
+    return {"status": "success", "message": result_message}
 
+@router.post("/myntra/pay-with-upi")
+async def pay_with_upi_endpoint(request: UpiPaymentRequest):
+    context = ACTIVE_SESSIONS.get(request.session_id)
+    if not context:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    
+    result_message = await enter_upi_and_pay(context, request.upi_id)
+    ACTIVE_SESSIONS.pop(request.session_id, None) # Clean up session
+    return {"status": "success", "message": result_message}

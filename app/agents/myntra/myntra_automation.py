@@ -4,6 +4,7 @@ import json
 import re
 from playwright.async_api import async_playwright, TimeoutError
 from urllib.parse import quote_plus
+import uuid
 
 # Constants
 MYNTRA_AUTH_FILE_PATH = os.path.join(os.path.dirname(__file__), "myntra_auth.json")
@@ -195,7 +196,29 @@ async def search_myntra(playwright_instance: async_playwright, query: str):
         await browser.close()
         raise
 
+async def _handle_upi_payment_setup(page):
+    """Helper function to navigate to the UPI payment section."""
+    print("💳 Navigating to payment page and selecting UPI...")
+    await asyncio.sleep(2) # Wait for payment options to load
+
+    # Click on the UPI tab
+    upi_tab_locator = page.locator('div#upi.tabBar-base-tab')
+    await upi_tab_locator.wait_for(state="visible", timeout=10000)
+    await upi_tab_locator.click()
+    print("✅ Clicked 'UPI' payment tab.")
+
+    # Click on the 'Enter UPI ID' radio button
+    enter_upi_id_locator = page.locator('div.paymentSubOption-base-rowContainer', has_text="Enter UPI ID")
+    await enter_upi_id_locator.wait_for(state="visible", timeout=10000)
+    await enter_upi_id_locator.click()
+    print("✅ Selected 'Enter UPI ID' option.")
+
+    # Wait for the input field to be ready
+    await page.wait_for_selector('input.inputWithDropdown-base-input', timeout=10000)
+    print("✅ UPI input field is ready.")
+
 async def add_to_cart(playwright_instance: async_playwright, product_url: str, size: str = None):
+
     """Adds a product to the cart."""
     print(f"🛒 Adding product to cart: {product_url}")
     browser = await playwright_instance.chromium.launch(
@@ -254,52 +277,126 @@ async def add_to_cart(playwright_instance: async_playwright, product_url: str, s
         await page.wait_for_selector('a.pdp-goToCart, span:has-text("GO TO BAG")', timeout=10000)
         print("✅ Added to bag successfully.")
         await asyncio.sleep(2)
-        
-        await browser.close()
-        return "Successfully added to bag"
-    except Exception as e:
-        print(f"❌ Error adding to cart: {e}")
-        await browser.close()
-        raise
 
-async def book_order(playwright_instance: async_playwright):
-    """Proceeds to checkout."""
-    print("🛍️ Proceeding to checkout...")
-    browser = await playwright_instance.chromium.launch(
-        headless=HEADLESS,
-        args=["--disable-blink-features=AutomationControlled"]
-    )
-    
-    state_path = MYNTRA_AUTH_FILE_PATH if os.path.exists(MYNTRA_AUTH_FILE_PATH) else None
-    if not state_path:
-        raise Exception("Not logged in. Cannot checkout.")
-        
-    context = await browser.new_context(
-        storage_state=state_path,
-        viewport={"width": 1366, "height": 768},
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
-    page = await context.new_page()
-
-    try:
         await page.goto("https://www.myntra.com/checkout/cart", wait_until="domcontentloaded", timeout=60000)
         print("✅ Cart page loaded.")
-        
+
         # Click Place Order
         print("👆 Clicking 'Place Order'...")
         place_order_btn = page.locator('button:has-text("PLACE ORDER")')
         await place_order_btn.click()
         
-        # Wait for address page
-        await page.wait_for_load_state('networkidle')
-        print("✅ Navigated to address/checkout page.")
-        
-        # We stop here for safety as actual booking involves payment
-        print("⚠️ Stopping at address selection for safety.")
-        
-        await browser.close()
-        return "Proceeded to checkout page"
+        # On the address page, check for saved address and continue
+        try:
+            print("🏠 Checking for saved address on the address page...")
+            # Wait for a serviceable address block to be visible
+            saved_address_locator = page.locator('div.addressBlocks-base-block.addressBlocks-base-serviceable').first
+            await saved_address_locator.wait_for(state="visible", timeout=15000)
+            print("✅ Found saved address.")
+
+            # Click the continue button
+            print("👆 Clicking 'Continue' on address page...")
+            continue_button_locator = page.locator('div.addressDesktop-base-continueBtn:has-text("continue")')
+            await continue_button_locator.click()
+            print("✅ Clicked 'Continue'.")
+
+            # Set up for UPI payment
+            await _handle_upi_payment_setup(page)
+
+            session_id = str(uuid.uuid4())
+            return {
+                "message": "Proceeded to payment. Please use the /myntra/pay-with-upi endpoint.",
+                "session_id": session_id,
+                "context": context
+            }
+            
+        except TimeoutError:
+            print("ℹ️ No saved address found or page did not load as expected within 15s.")
+            # The page is now expecting a new address. Keep the session open.
+            session_id = str(uuid.uuid4())
+            return {
+                "message": "No saved address found. Please use the /myntra/add-address endpoint to add a new address.",
+                "session_id": session_id,
+                "context": context
+            }
+        except Exception as e:
+            print(f"⚠️ An error occurred on the address page: {e}")
+            await browser.close()
+            raise
+
     except Exception as e:
-        print(f"❌ Error during checkout: {e}")
+        print(f"❌ Error adding to cart: {e}")
         await browser.close()
+        raise
+
+async def add_new_address(context, address_data: dict):
+    """Fills the new address form on Myntra."""
+    page = context.pages[-1] # Get the active page
+    print("📝 Filling new address form...")
+
+    try:
+        # Fill contact details
+        await page.locator('input#name').fill(address_data["name"])
+        await page.locator('input#mobile').fill(address_data["mobile"])
+
+        # Fill address details
+        await page.locator('input#pincode').fill(address_data["pincode"])
+        await asyncio.sleep(2) # Wait for city/state to auto-populate
+        await page.locator('input#houseNumber').fill(address_data["house_number"])
+        await page.locator('input#streetAddress').fill(address_data["street_address"])
+        await page.locator('input#locality').fill(address_data["locality"])
+
+        # Select address type
+        address_type = address_data.get("address_type", "HOME").upper()
+        if address_type == "OFFICE":
+            await page.locator('div#addressType-office').click()
+        else:
+            await page.locator('div#addressType-home').click()
+        print(f"✅ Selected address type: {address_type}")
+
+        # Set as default address if requested
+        if address_data.get("make_default"):
+            await page.locator('input#isDefault-native-checkbox').check()
+            print("✅ Marked as default address.")
+
+        # Save address
+        print("👆 Clicking 'Save'...")
+        await page.locator('div.button-base-button.addressFormUI-base-saveBtn').click()
+
+        # After saving, the new address is selected. Now set up for UPI payment.
+        await _handle_upi_payment_setup(page)
+
+        session_id = str(uuid.uuid4())
+        return {
+            "message": "Address added. Please use the /myntra/pay-with-upi endpoint.",
+            "session_id": session_id,
+            "context": context
+        }
+    except Exception as e:
+        print(f"❌ Error adding new address: {e}")
+        await context.browser.close()
+        raise
+
+async def enter_upi_and_pay(context, upi_id: str):
+    """Enters the UPI ID and clicks the Pay Now button."""
+    page = context.pages[-1] # Get the active page
+    print(f"💳 Entering UPI ID: {upi_id} and attempting payment...")
+
+    try:
+        # Fill UPI ID
+        upi_input_locator = page.locator('input.inputWithDropdown-base-input')
+        await upi_input_locator.fill(upi_id)
+        print("✅ UPI ID entered.")
+
+        # Click Pay Now
+        pay_now_button = page.locator('button.actionButton-base-actionButton:has-text("Pay Now")')
+        await pay_now_button.click()
+        print("✅ Clicked 'Pay Now'. Waiting for payment confirmation on your UPI app.")
+
+        await asyncio.sleep(10) # Give user time to see the page before closing
+        await context.browser.close()
+        return "Payment initiated. Please complete the transaction on your UPI app."
+    except Exception as e:
+        print(f"❌ Error during UPI payment: {e}")
+        await context.browser.close()
         raise
