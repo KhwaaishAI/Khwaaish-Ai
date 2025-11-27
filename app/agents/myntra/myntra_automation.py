@@ -393,6 +393,35 @@ async def enter_upi_and_pay(context, upi_id: str):
         await pay_now_button.click()
         print("✅ Clicked 'Pay Now'. Waiting for payment confirmation on your UPI app.")
 
+        # Handle potential additional UPI verification screen
+        await asyncio.sleep(5) # Wait to see if a new page/modal loads
+        try:
+            print("🔍 Checking for additional verification step...")
+            # This locator is based on the new HTML provided for the second UPI entry screen
+            additional_upi_section = page.locator('div.instrumentItem:has-text("UPI ID")')
+            await additional_upi_section.wait_for(state="visible", timeout=5000)
+            
+            print("✅ Additional verification screen found. Proceeding...")
+            await additional_upi_section.click()
+
+            # Fill the new UPI ID input
+            await page.locator('input#vpaInput').fill(upi_id)
+            print(f"✅ Re-entered UPI ID: {upi_id}")
+
+            # Click Verify
+            await page.locator('a:has-text("VERIFY UPI ID")').click()
+            print("✅ Clicked 'VERIFY UPI ID'.")
+            await asyncio.sleep(2) # Wait for verification
+
+            # Click the final Pay button
+            await page.locator('button:has-text("PAY")').click()
+            print("✅ Clicked final 'PAY' button. Payment re-initiated.")
+
+        except TimeoutError:
+            print("ℹ️ No additional verification step detected. Assuming direct payment initiation.")
+        except Exception as e:
+            print(f"⚠️ An error occurred during the additional verification step: {e}")
+
         await asyncio.sleep(10) # Give user time to see the page before closing
         await context.browser.close()
         return "Payment initiated. Please complete the transaction on your UPI app."
