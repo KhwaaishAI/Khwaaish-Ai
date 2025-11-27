@@ -174,6 +174,8 @@ async def search_myntra(playwright_instance: async_playwright, query: str):
                 rating_count = await get_text(card.locator('div.product-ratingsCount'))
 
                 link = await card.locator('a').get_attribute('href')
+                image_locator = card.locator('picture > img')
+                image_url = await image_locator.get_attribute('src', timeout=5000) if await image_locator.count() > 0 else None
                 
                 products.append({
                     "brand": brand,
@@ -183,6 +185,7 @@ async def search_myntra(playwright_instance: async_playwright, query: str):
                     "discount": await get_text(discount_element),
                     "rating": rating,
                     "rating_count": rating_count.replace('|', '').strip() if rating_count else None,
+                    "image_url": image_url,
                     "url": f"https://www.myntra.com/{link}" if link and not link.startswith('http') else link
                 })
             except Exception as e:
@@ -305,6 +308,7 @@ async def add_to_cart(playwright_instance: async_playwright, product_url: str, s
 
             session_id = str(uuid.uuid4())
             return {
+                "status": "upi_required",
                 "message": "Proceeded to payment. Please use the /myntra/pay-with-upi endpoint.",
                 "session_id": session_id,
                 "context": context
@@ -315,6 +319,7 @@ async def add_to_cart(playwright_instance: async_playwright, product_url: str, s
             # The page is now expecting a new address. Keep the session open.
             session_id = str(uuid.uuid4())
             return {
+                "status": "address_required",
                 "message": "No saved address found. Please use the /myntra/add-address endpoint to add a new address.",
                 "session_id": session_id,
                 "context": context
@@ -394,7 +399,8 @@ async def enter_upi_and_pay(context, upi_id: str):
         print("✅ Clicked 'Pay Now'. Waiting for payment confirmation on your UPI app.")
 
         # Handle potential additional UPI verification screen
-        await asyncio.sleep(5) # Wait to see if a new page/modal loads
+        print("⏳ Waiting for page to load after payment initiation...")
+        await page.wait_for_load_state("networkidle", timeout=10000)
         try:
             print("🔍 Checking for additional verification step...")
             # This locator is based on the new HTML provided for the second UPI entry screen

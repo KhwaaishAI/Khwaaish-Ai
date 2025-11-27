@@ -109,7 +109,7 @@ async def add_item(request: AddToCartRequest):
         if "session_id" in result_data:
             ACTIVE_SESSIONS[result_data["session_id"]] = result_data["context"]
             return {
-                "status": "address_required",
+                "status": result_data.get("status", "action_required"),
                 "session_id": result_data["session_id"],
                 "message": result_data["message"]
             }
