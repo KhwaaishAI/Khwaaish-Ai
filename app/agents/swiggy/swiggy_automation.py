@@ -388,11 +388,15 @@ async def search_swiggy(playwright_instance: async_playwright, location: str, qu
                         description = await description_element.text_content() if await description_element.count() > 0 else "N/A"
                         is_veg = "Veg Item." in description
 
+                        image_element = dish_element_to_process.locator('img._3XS7H').first
+                        image_url = await image_element.get_attribute('src') if await image_element.count() > 0 else "N/A"
+
                         product_identifier = (item_name.strip(), price.strip(), current_restaurant_name.strip())
                         if product_identifier not in seen_products:
                             product_details = {
                                 "restaurant_name": current_restaurant_name.strip(),
                                 "item_name": item_name.strip(),
+                                "image_url": image_url,
                                 "rating": current_rating.strip(),
                                 "delivery_time": current_delivery_time.strip(),
                                 "price": price.strip(),
@@ -423,11 +427,15 @@ async def search_swiggy(playwright_instance: async_playwright, location: str, qu
                     description = await description_element.text_content() if await description_element.count() > 0 else "N/A"
                     is_veg = "Veg Item." in description
 
+                    image_element = card.locator('img._3XS7H').first
+                    image_url = await image_element.get_attribute('src') if await image_element.count() > 0 else "N/A"
+
                     product_identifier = (item_name.strip(), price.strip(), current_restaurant_name.strip())
                     if product_identifier not in seen_products:
                         product_details = {
                             "restaurant_name": current_restaurant_name.strip(),
                             "item_name": item_name.strip(),
+                            "image_url": image_url,
                             "rating": current_rating.strip(),
                             "delivery_time": current_delivery_time.strip(),
                             "price": price.strip(),
