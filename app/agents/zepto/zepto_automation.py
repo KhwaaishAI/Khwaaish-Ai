@@ -167,10 +167,21 @@ async def search_products_zepto(page, query: str, max_items: int = 20):
             price_elem = card.locator('div[data-slot-id="EdlpPrice"] span').first
             if not await name_elem.is_visible(timeout=1000) or not await price_elem.is_visible(timeout=1000):
                 continue
+
             name = (await name_elem.text_content(timeout=2000)).strip()
             price_text = (await price_elem.text_content(timeout=2000)).strip()
             price = float(re.sub(r'[^\d.]', '', price_text))
-            scraped.append({"name": name, "price": price})
+
+            # Try to grab the main product image URL from the card
+            image_url = None
+            try:
+                img_elem = card.locator('div[data-slot-id="ProductImageWrapper"] img').first
+                if await img_elem.is_visible(timeout=800):
+                    image_url = await img_elem.get_attribute("src")
+            except Exception:
+                image_url = None
+
+            scraped.append({"name": name, "price": price, "image_url": image_url})
         except Exception:
             continue
     if not scraped:
